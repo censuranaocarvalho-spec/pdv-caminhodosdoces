@@ -1,0 +1,8 @@
+dados/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.history/
+.env
+.env.*

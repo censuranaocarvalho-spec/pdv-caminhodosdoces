@@ -1,0 +1,42 @@
+pdv-hub-root/
+│
+├── core-orders/               # [Módulo 1] Gestão de Pedidos & Caixa (PDV Central, Sinal 50/50, Vendas Balcão)
+│   ├── src/
+│   │   ├── domain/            # Entidades de negócio (Pedido, Item, Pagamento)
+│   │   ├── application/       # Casos de uso (CriarPedido, ConfirmarSinal, FecharCaixa)
+│   │   └── infrastructure/    # Persistência de dados e adaptadores
+│   └── README.md
+│
+├── integrations-hub/          # [Módulo 2] Adaptadores iFood, 99Food e WhatsApp
+│   ├── src/
+│   │   ├── ifood/             # Webhooks e polling iFood API
+│   │   ├── ninetynine/        # Webhooks 99Food API
+│   │   └── whatsapp/          # WhatsApp Business API / Webhooks
+│   └── README.md
+│
+├── finance-ledger/            # [Módulo 3] DRE, Cartões Bruto/Líquido, Conciliação Bancária (Open Finance)
+│   ├── src/
+│   │   ├── Ledger/            # Livro Caixa e DRE em tempo real
+│   │   └── reconciliation/    # Conciliação de repasses de taxas iFood/99/Maquininhas
+│   └── README.md
+│
+├── crm-marketing/             # [Módulo 4] Captação, Avaliação Interna WhatsApp (1-5★) & Publicações
+│   ├── src/
+│   │   ├── feedback/          # Engine de Avaliação Interna & Transição de Promotores/Detratores
+│   │   ├── retention/         # Campanhas automatizadas e LTV
+│   │   └── social/            # Publisher de Redes Sociais
+│   └── README.md
+│
+├── compliance-governance/     # [Módulo 5] LGPD, ANVISA, Fiscal (IBPT), Regras de Negócio e Auditoria
+│   ├── src/
+│   │   ├── lgpt/              # Opt-in/Opt-out, Anonimização de Dados
+│   │   ├── sanitary/          # Checklists ANVISA e Alerta de Validade/Alergênicos
+│   │   └── fiscal/            # Retenções e Emissão de Cupom Não Fiscal/Fiscal
+│   └── README.md
+│
+├── shared/                    # [Transversal] Schemas compartilhados, Event Bus e DTOs comuns
+│   ├── events/                # Definição de eventos do sistema (PedidoCriado, AvaliacaoRecebida)
+│   └── utils/
+│
+├── docs/                      # Documentação técnica, Diagramas C4 e Especificações OpenAPI
+└── docker-compose.yml         # Ambiente local (Banco de Dados, Mensageria, Redis)
