@@ -2050,18 +2050,40 @@ def abrir_loja(payload: LojaAbrir):
     return abrir_painel_loja(payload.canal.strip().lower())
 
 
+def achar_git() -> str | None:
+    achado = shutil.which("git")
+    if achado:
+        return achado
+    if os.name != "nt":
+        return None
+    for caminho in (
+        os.path.expandvars(r"%ProgramFiles%\Git\cmd\git.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Git\cmd\git.exe"),
+        os.path.expandvars(r"%LocalAppData%\Programs\Git\cmd\git.exe"),
+    ):
+        if caminho and os.path.isfile(caminho):
+            return caminho
+    return None
+
+
 def git_na_loja(*args: str, timeout: int = 20) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-C", RAIZ, *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    git = achar_git()
+    if not git:
+        return subprocess.CompletedProcess(args=["git", *args], returncode=1, stdout="", stderr="")
+    try:
+        return subprocess.run(
+            [git, "-C", RAIZ, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args=[git, *args], returncode=1, stdout="", stderr="")
 
 
 def tem_repositorio() -> bool:
-    return bool(shutil.which("git")) and os.path.isdir(os.path.join(RAIZ, ".git"))
+    return bool(achar_git()) and os.path.isdir(os.path.join(RAIZ, ".git"))
 
 
 def consultar_atualizacao() -> dict:
