@@ -123,9 +123,16 @@
     }
     .check-robo { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; font-weight: 600; }
     .check-robo input { width: auto; margin-top: 3px; }
-    #fechar-fundo, #abrir-fundo { display: none; position: fixed; inset: 0; background: rgba(124, 74, 58, 0.35); z-index: 50; padding: 24px; }
-    #fechar-fundo.aberto, #abrir-fundo.aberto { display: flex; align-items: center; justify-content: center; }
-    #fechar-fundo .card, #abrir-fundo .card { max-width: 520px; width: 100%; }
+    #fechar-fundo, #abrir-fundo, #canal-fundo, #guia-cozinha, #pronto-fundo { display: none; position: fixed; inset: 0; background: rgba(124, 74, 58, 0.35); z-index: 50; padding: 24px; overflow-y: auto; }
+    #fechar-fundo.aberto, #abrir-fundo.aberto, #canal-fundo.aberto, #guia-cozinha.aberto, #pronto-fundo.aberto { display: flex; align-items: flex-start; justify-content: center; }
+    #fechar-fundo .card, #abrir-fundo .card, #canal-fundo .card, #guia-cozinha .card, #pronto-fundo .card { max-width: 520px; width: 100%; margin: 24px 0; }
+    nav button.cozinha-ok { background: #1F6B4A; color: #fff; }
+    nav button.cozinha-alerta { background: #9B2C2C; color: #fff; }
+    .fila-pedido { border-left: 8px solid #1F6B4A; cursor: pointer; }
+    .fila-pedido.restricao { border-left-color: #9B2C2C; }
+    .selo-ok, .selo-alerta { display: inline-block; border-radius: 999px; padding: 2px 8px; color: #fff; font-size: 12px; }
+    .selo-ok { background: #1F6B4A; }
+    .selo-alerta { background: #9B2C2C; }
     .faixa-atualizacao {
       display: none;
       position: fixed;
@@ -608,7 +615,7 @@
       main { padding: 12px 12px 16px; }
       .login-card, .tutorial-card { margin: 8px auto; padding: 20px 14px; border-radius: 22px; }
       #login-fundo, #tutorial-fundo, #tutorial-fiscal { padding: 12px 10px; }
-      #fechar-fundo, #abrir-fundo { padding: 12px; }
+      #fechar-fundo, #abrir-fundo, #canal-fundo, #guia-cozinha, #pronto-fundo { padding: 12px; }
     }
     @media (max-width: 360px) {
       nav { gap: 6px; padding-left: 8px; padding-right: 8px; }
@@ -657,7 +664,7 @@
       <div class="logo-anel">
         <img src="/static/logo.png?v=3" alt="Caminho dos Doces">
       </div>
-      <h2>O robô da loja</h2>
+      <h2>Informativo</h2>
       <p>Ele lembra a ordem do dia. Nada disso entra no iFood, no 99Food nem no banco sozinho: ela olha e confirma.</p>
       <ol class="tutorial-passos">
         <li><strong>De manhã.</strong> O robô pergunta se o cardápio está completo e se o estoque do iFood e do 99Food bate com a cozinha. Os três sim ganham um “Muito bem”.</li>
@@ -713,6 +720,38 @@
       <div class="aviso" id="abrir-aviso"></div>
     </div>
   </div>
+  <div id="guia-cozinha">
+    <div class="card" id="guia-cozinha-card"></div>
+  </div>
+  <div id="pronto-fundo">
+    <div class="card">
+      <h2>Avisar a cliente</h2>
+      <p class="nota" id="pronto-guia"></p>
+      <p id="pronto-mensagem"></p>
+      <button class="acao" id="pronto-mandar" type="button">Mandar o aviso</button>
+      <button class="acao claro" id="pronto-cancelar" type="button">Cancelar o aviso</button>
+      <div id="pronto-senha-bloco" hidden>
+        <label>Senha da loja</label>
+        <input id="pronto-senha" type="password" autocomplete="off">
+        <label>Senha administrativa</label>
+        <input id="pronto-senha-admin" type="password" autocomplete="off">
+        <p class="nota">As duas podem ser a mesma, até ela trocar a senha.</p>
+        <button class="acao claro" id="pronto-senha-ok" type="button">Confirmar o cancelamento</button>
+      </div>
+      <div class="aviso" id="pronto-aviso"></div>
+    </div>
+  </div>
+  <div id="canal-fundo">
+    <div class="card">
+      <h2 id="canal-titulo">Antes de abrir</h2>
+      <p class="nota">Abrir o aplicativo não lança venda e não mexe no caixa. Se hoje não vendeu, o valor do dia pode ser R$ 0,00.</p>
+      <label class="check-robo"><input type="checkbox" id="ok-loja-aberta"> A loja está aberta</label>
+      <label class="check-robo"><input type="checkbox" id="ok-precos"> Os preços da loja, do iFood e do 99Food estão certos</label>
+      <label class="check-robo"><input type="checkbox" id="ok-banco-dia"> Já conferi o saldo e as contas do banco</label>
+      <button class="acao" id="canal-confirmar" type="button" disabled>Está conferido, pode abrir</button>
+      <button class="acao claro" id="canal-cancelar" type="button">Agora não</button>
+    </div>
+  </div>
   <div id="fechar-fundo">
     <div class="card">
       <h2>Fechar o caixa da noite</h2>
@@ -728,18 +767,19 @@
   </div>
   <nav>
     <button class="ativa" data-aba="caixa">Caixa</button>
-    <button data-aba="cardapio">Cardápio</button>
-    <button data-aba="agenda">Agenda</button>
+    <button data-aba="cozinha">Cozinha</button>
     <button data-aba="financeiro">Financeiro</button>
     <button data-aba="motoboy">Motoboy</button>
+    <button data-aba="cardapio">Cardápio</button>
+    <button data-aba="agenda">Agenda</button>
     <button data-aba="almoxarifado">Almoxarifado</button>
     <button data-aba="admin">Administrativo</button>
     <button type="button" id="caixa-turno">Fechar o caixa</button>
-    <button type="button" id="abrir-tutorial">O robô</button>
+    <button data-aba="informativo">Informativo</button>
     <button type="button" class="sair" id="sair-loja">Sair</button>
   </nav>
   <div id="guia-mensagem" class="guia-mensagem"></div>
-  <div class="faixa-fantasma" id="faixa-fantasma">Exemplo na tela. iFood, 99Food, depósito e bancos não entram no caixa nem no arquivo da loja.</div>
+  <div class="faixa-fantasma" id="faixa-fantasma">Exemplo na tela. iFood, 99Food, cozinha, depósito e bancos não entram no caixa nem no arquivo da loja.</div>
   <div class="atalho-exemplo">
     <button class="acao claro" id="fantasma" type="button">Ver como fica com iFood, 99Food e banco</button>
   </div>
@@ -952,6 +992,11 @@
     </section>
     <section class="painel" id="financeiro">
       <div class="card">
+        <h2>Aguardando o fechamento</h2>
+        <p class="nota">O pedido sai da cozinha quando ela marca que está pronto. Aqui ele espera o fechamento do caixa.</p>
+        <div id="lista-cozinha-financeiro" class="vazio">Nenhum pedido pronto ainda.</div>
+      </div>
+      <div class="card">
         <h2>O coração da loja</h2>
         <p class="nota">O bruto é o que as vendas somam, já com os juros do cartão. O líquido é o que sobra depois das corridas, das diárias, da reserva do contratado, do pró-labore, do custo da loja, do iFood, do 99Food e dos mantimentos. O lucro ou o prejuízo do desconto continua no cartão de baixo, separado do caixa.</p>
         <div class="numeros" id="resumo-numeros"></div>
@@ -991,7 +1036,7 @@
         <button class="acao" id="gaveta-salvar" type="button">A contagem está feita</button>
         <div class="aviso" id="gaveta-aviso"></div>
         <h2>Passar para o banco</h2>
-        <p class="nota">O valor sai da gaveta e entra na conta empresa. Depois ela conta a gaveta de novo.</p>
+        <p class="nota">O valor sai da gaveta e entra na conta empresa. Se hoje não passar nada, deixe R$ 0,00 e aperte o botão. Nada muda na gaveta nem na conta.</p>
         <label>Valor que vai para a conta empresa</label>
         <input id="passar-valor" inputmode="numeric" value="R$ 0,00">
         <button class="acao claro" id="passar-banco" type="button">Passar para a conta empresa</button>
@@ -1168,6 +1213,26 @@
         </div>
       </div>
     </section>
+    <section class="painel" id="cozinha">
+      <div class="card">
+        <h2>Cozinha</h2>
+        <p class="nota">A venda fechada no caixa chega aqui com o endereço, a data, a hora, o pagamento e o momento do pedido. Verde é sem restrição. Vermelho é alergia ou restrição escrita na observação. Toque no pedido para ver o que a cliente pediu.</p>
+        <div id="fila-cozinha" class="vazio">Nenhuma venda na cozinha.</div>
+        <h2>Fornada do depósito</h2>
+        <p class="nota">O depósito guarda o que foi comprado. Aqui ela anota o que saiu do forno. Cada mantimento marcado gasta uma receita daquele lote. A quantidade é quantos doces saíram, não quantas receitas.</p>
+        <div id="cozinha-resto"></div>
+        <label>Doce que saiu</label>
+        <select id="cozinha-doce"></select>
+        <label>Quantos saíram</label>
+        <input id="cozinha-qtd" type="number" min="1" step="1" value="1">
+        <p class="nota">Marque só o que esta fornada usou. Se não marcar, o depósito fica igual.</p>
+        <div id="cozinha-mantimentos"></div>
+        <p class="nota" id="cozinha-conta">Escolha o doce e marque os mantimentos.</p>
+        <button class="acao" id="cozinha-lancar" type="button">A fornada saiu</button>
+        <div class="aviso" id="cozinha-aviso"></div>
+        <div id="cozinha-lista" class="vazio" style="margin-top:12px">Nenhuma fornada ainda.</div>
+      </div>
+    </section>
     <section class="painel" id="almoxarifado">
       <div class="card">
         <div class="aviso" id="alm-robo"></div>
@@ -1258,11 +1323,12 @@
           <div class="card">
             <h2>iFood</h2>
             <button class="acao" id="ifood-abrir-app" type="button">Abrir o aplicativo do iFood</button>
-            <p class="nota">O botão abre o aplicativo neste computador. O PDV não entra na conta: ela olha o iFood e digita o valor de vendas total do dia. Aperta Enter: o botão vermelho fica verde e o próximo é o 99Food. O líquido é a soma do ciclo de repasse, abaixo. O botão de salvar fica na aba Banco.</p>
+            <p class="nota">O botão pede a conferência e depois abre o aplicativo neste computador. O PDV não entra na conta. Se não vendeu, use Não vendi hoje. Se vendeu, digite o total e aperte Enter. Salve na aba Banco.</p>
             <div class="linha">
               <div>
                 <label>Valor de vendas total do dia no iFood</label>
                 <input id="ifood-saldo" inputmode="numeric" value="R$ 0,00">
+                <button class="acao claro" id="ifood-zero" type="button">Não vendi hoje</button>
               </div>
               <div>
                 <label>Plano</label>
@@ -1331,11 +1397,12 @@
           <div class="card">
             <h2>99Food</h2>
             <button class="acao" id="noventa-abrir-app" type="button">Abrir o aplicativo do 99Food</button>
-            <p class="nota">O botão abre o aplicativo neste computador. O PDV não entra na conta. Ela digita o valor de vendas total do dia no 99Food e aperta Enter. O botão fica verde e o próximo é o banco. O líquido é a soma do ciclo de repasse, abaixo. O botão de salvar fica na aba Banco.</p>
+            <p class="nota">O botão pede a conferência e depois abre o aplicativo neste computador. O PDV não entra na conta. Se não vendeu, use Não vendi hoje. Se vendeu, digite o total e aperte Enter. Salve na aba Banco.</p>
             <div class="linha">
               <div>
                 <label>Valor de vendas total do dia no 99Food</label>
                 <input id="noventa-saldo" inputmode="numeric" value="R$ 0,00">
+                <button class="acao claro" id="noventa-zero" type="button">Não vendi hoje</button>
               </div>
               <div>
                 <label>Plano</label>
@@ -1402,13 +1469,14 @@
         <div class="aba-admin" id="aba-banco">
         <div class="card">
           <h2>Contas, separadas e somadas</h2>
-          <p class="nota">A soma é só o dinheiro das contas. O limite do cartão aparece separado, porque limite não é saldo.</p>
+          <p class="nota">A soma é só o dinheiro das contas. O limite do cartão aparece separado, porque limite não é saldo. Se a conta empresa estiver em zero, use Conta zerada e salve. Zero também entra no fechamento.</p>
           <div class="numeros" id="admin-numeros"></div>
           <div id="admin-barras" style="margin-top:12px"></div>
           <div class="linha">
             <div>
               <label>Saldo da conta empresa</label>
               <input id="banco-empresa" inputmode="numeric" value="R$ 0,00">
+              <button class="acao claro" id="banco-zero" type="button">Conta zerada</button>
             </div>
             <div>
               <label>Saldo do Nubank</label>
@@ -1838,6 +1906,77 @@
           <button class="acao claro" id="senha-trocar" type="button">Trocar senha</button>
           <div class="aviso" id="senha-aviso"></div>
         </div>
+      </div>
+    </section>
+    <section class="painel" id="informativo">
+      <div class="card" id="info-dia">
+        <h2>O dia da loja</h2>
+        <p class="nota">Isto é lembrete. Nada entra no iFood, no 99Food nem no banco sozinho: ela olha e confirma.</p>
+        <ol class="tutorial-passos">
+          <li><strong>De manhã.</strong> O PDV pergunta se o cardápio está completo e se o estoque do iFood e do 99Food bate com a cozinha.</li>
+          <li><strong>Na encomenda.</strong> Sinal de 50% fica marcado como “Falta 50%”. Na entrega, ela escolhe dinheiro, PIX ou débito e aperta Recebi. O valor entra na gaveta.</li>
+          <li><strong>No depósito.</strong> Toque no mantimento, digite quanto pagou, quanto comprou e quanto entra numa receita. A frase embaixo mostra o custo.</li>
+          <li><strong>À noite, depois das 22:30.</strong> A fileira pede, nesta ordem: vendas do iFood, vendas do 99Food, banco e contagem da gaveta. Digite, aperte Enter e salve. Se o dia zerou, use Não vendi hoje ou Conta zerada.</li>
+          <li><strong>Para fechar.</strong> Com os passos prontos, o botão fica verde: Conferir e fechar. O caixa encerra.</li>
+        </ol>
+      </div>
+      <div class="card" id="info-fiscal">
+        <h2>Tutorial do cupom fiscal</h2>
+        <p class="nota">O cupom não fiscal já sai. O fiscal fica pronto, com o botão desligado, até a loja precisar dele. Nada sai como nota da SEFAZ enquanto o botão estiver desligado.</p>
+        <ol class="tutorial-passos">
+          <li><strong>Em cada venda.</strong> O lembrete pergunta se aquela venda é cupom não fiscal ou cupom fiscal. O não fiscal já vem marcado.</li>
+          <li><strong>Não fiscal.</strong> Finalizar emite o cupom de hoje e manda o PDF no WhatsApp.</li>
+          <li><strong>Fiscal.</strong> A venda fica marcada e o PDF também vai no WhatsApp. O cupom abre organizado, com número, série, chave e QR esperando.</li>
+          <li><strong>A impressora.</strong> A procura olha o computador onde o PDV está aberto.</li>
+        </ol>
+      </div>
+      <div class="card" id="info-pagamento">
+        <h2>Regras do pagamento</h2>
+        <ul>
+          <li>PIX ou dinheiro com sinal: 50% agora e 50% na entrega.</li>
+          <li>Dinheiro, débito ou PIX integral: entra o valor inteiro na hora.</li>
+          <li>Crédito: até 5 vezes. À vista, sem juro. Parcelado, 1,99% ao mês, por conta da cliente.</li>
+          <li>No misto, a primeira parte é digitada. O juro do crédito, se houver, cai só sobre a parte do cartão.</li>
+          <li>Passar para o banco com R$ 0,00 não tira nada da gaveta nem muda a conta empresa.</li>
+        </ul>
+      </div>
+      <div class="card" id="info-entrega">
+        <h2>Regras da entrega</h2>
+        <ul>
+          <li>Retirada na loja: sem taxa.</li>
+          <li>Motoboy da loja e entrega particular: R$ 10,00 até 5 km e R$ 1,80 por km a mais. O CEP mede a distância de carro a partir da loja.</li>
+          <li>Uber ou 99 Entregas: quem paga a corrida é a cliente. O valor fica só para controle e não entra no pedido.</li>
+          <li>Quando o produto fica pronto, o aviso pede para ela ficar atenta. Motoboy e entrega particular dizem um tempo pelo CEP e pela taxa. Uber ou 99 pedem para a loja entrar em contato.</li>
+        </ul>
+      </div>
+      <div class="card" id="info-cozinha">
+        <h2>Regras da cozinha</h2>
+        <ul>
+          <li>A venda fechada no caixa chega na cozinha com cliente, endereço, data, hora, pagamento e o momento do pedido.</li>
+          <li>Verde é sem restrição. Vermelho é alergia ou restrição escrita na observação: alergia, intolerância, glúten, lactose, amendoim, castanha, nozes ou diabetes.</li>
+          <li>O produto está pronto monta o aviso. Mandar o aviso envia o WhatsApp e só então o pedido espera o fechamento no financeiro.</li>
+          <li>Cancelar o aviso pede a senha da loja e a senha administrativa. As duas podem ser a mesma, até ela trocar a senha.</li>
+        </ul>
+      </div>
+      <div class="card" id="info-canais">
+        <h2>Regras do iFood e do 99Food</h2>
+        <p class="nota">Os números começam nestes valores. Ela troca quando o painel do aplicativo mostrar outro. O PDV não entra no iFood, no 99Food nem no Nubank.</p>
+        <ul>
+          <li>iFood Básico: comissão 12% e mensalidade R$ 110. Entrega: 23% e R$ 150. Pagamento pelo aplicativo soma 3,2%.</li>
+          <li>Repasse semanal do iFood sugere 1,59%, ou 1,49% na Conta Digital.</li>
+          <li>99Food com a 99 entregando: comissão 8,9%. Com a loja entregando: 10,9%. Pagamento no aplicativo soma 3,2%. Mensalidade começa em R$ 0. Saque semanal ou diário sugere 1,59%.</li>
+        </ul>
+      </div>
+      <div class="card" id="info-leis">
+        <h2>Leis e regras da folha</h2>
+        <p class="nota">A conta oficial continua com o contador. O PDV separa o custo para ela enxergar o mês.</p>
+        <ul>
+          <li>Simples Nacional, Anexos I, II, III e V: a loja paga FGTS e separa férias, 13º e multa. INSS patronal, RAT, salário-educação e Sistema S ficam de fora dessa folha, porque o imposto da empresa vai no DAS.</li>
+          <li>Anexo IV e Lucro Presumido ou Real: entram INSS patronal, salário-educação, RAT e Sistema S. RAT usual: 1, 2 ou 3. Sistema S usual: 3,3, 4,5 ou 5,8.</li>
+          <li>FGTS 8%. Férias 11,11%. 13º 8,33%. Multa do FGTS 4%. Vale-transporte até 6% do salário. Vale-alimentação, se ligado, desconta o percentual do vale. A soma dos descontos no salário não passa de 70%: pelo menos 30% fica líquido.</li>
+          <li>INSS do colaborador em 2026: 7,5% até R$ 1.621,00, 9% até R$ 2.902,84, 12% até R$ 4.354,27 e 14% até R$ 8.475,55. O IRRF fica zerado quando o rendimento do mês vai até R$ 5.000,00. Os dois saem do salário dele e não aumentam o custo da loja.</li>
+          <li>Pró-labore: salário dela pelo trabalho na loja, com INSS e IRRF. O INSS do sócio começa em 11% e vai até o teto de R$ 8.475,55. Abaixo de R$ 1.621,00, a base sobe para o salário mínimo. Não tem FGTS, férias nem 13º. Conta de casa não se paga pela conta da loja.</li>
+        </ul>
       </div>
     </section>
   </main>
@@ -2535,6 +2674,7 @@
         <div class="nota">Protocolo: aguardando</div>
         <div class="nota">QR Code: aguardando</div>
         <div class="centro" style="margin-top:10px">Documento ainda sem valor fiscal.</div>
+        <p class="nota" id="cupom-envio"></p>
         <div class="acoes">
           <button class="acao" type="button" id="emitir-fiscal" disabled>Emitir cupom fiscal</button>
           <button class="acao claro" type="button" id="reenviar-cupom">Enviar PDF e link no WhatsApp</button>
@@ -2595,6 +2735,7 @@
         <div class="centro" style="margin-top:10px">Documento sem valor fiscal.</div>
         <div class="centro">${linhaImpressora()}</div>
         <div class="nota">O PDF segue neste formato. Os ícones clicáveis levam ao WhatsApp, Instagram, Facebook e iFood.</div>
+        <p class="nota" id="cupom-envio"></p>
         <div class="acoes">
           <button class="acao" type="button" id="conferir-estoque">Conferir o estoque desta venda</button>
           <button class="acao claro" type="button" id="reenviar-cupom">Enviar PDF e link no WhatsApp</button>
@@ -2653,16 +2794,43 @@
       return corpo;
     }
 
+    function marcarEnvioCupom(texto) {
+      const alvo = document.getElementById("cupom-envio");
+      if (alvo) alvo.textContent = texto;
+    }
+
     async function dispararEnvio(pedido) {
       if (!pedido || !pedido.link) return;
       const texto = textoCupom(pedido);
-      mostrarZap("Enviando o PDF do cupom e o link no WhatsApp…", pedido);
+      mostrarZap("Enviando o PDF do cupom no WhatsApp da cliente e a cópia para ela…", pedido);
+      marcarEnvioCupom("Enviando o PDF no WhatsApp…");
       try {
-        await abrirWhatsappNoComputador(pedido.telefone, texto, pedido.orderId);
-        mostrarZap(`${texto}\n\nPDF e link enviados no WhatsApp.`, pedido);
+        const corpo = await abrirWhatsappNoComputador(pedido.telefone, texto, pedido.orderId);
+        const extra = corpo.aviso ? ` ${corpo.aviso}` : (corpo.copia ? " Ela recebeu o PDF no WhatsApp." : "");
+        const pronto = `PDF e link enviados no WhatsApp.${extra}`;
+        mostrarZap(`${texto}\n\n${pronto}`, pedido);
+        marcarEnvioCupom(pronto);
       } catch (erro) {
         mostrarZap(erro.message, pedido);
+        marcarEnvioCupom(erro.message);
       }
+    }
+
+    let canalPendente = "";
+
+    function atualizarBotaoCanal() {
+      const pronto = ["ok-loja-aberta", "ok-precos", "ok-banco-dia"].every((id) => document.getElementById(id).checked);
+      document.getElementById("canal-confirmar").disabled = !pronto;
+    }
+
+    function pedirAbertura(canal) {
+      canalPendente = canal;
+      document.getElementById("canal-titulo").textContent = canal === "ifood" ? "Antes de abrir o iFood" : "Antes de abrir o 99Food";
+      ["ok-loja-aberta", "ok-precos", "ok-banco-dia"].forEach((id) => {
+        document.getElementById(id).checked = false;
+      });
+      atualizarBotaoCanal();
+      document.getElementById("canal-fundo").classList.add("aberto");
     }
 
     async function abrirAplicativo(canal) {
@@ -2684,12 +2852,39 @@
     document.getElementById("zap-botao").onclick = () => {
       document.getElementById("zap-painel").classList.toggle("aberto");
     };
-    document.getElementById("atalho-ifood").onclick = () => abrirAplicativo("ifood");
-    document.getElementById("atalho-noventa").onclick = () => abrirAplicativo("noventa");
-    document.getElementById("abrir-ifood").onclick = () => abrirAplicativo("ifood");
-    document.getElementById("abrir-noventa").onclick = () => abrirAplicativo("noventa");
-    document.getElementById("ifood-abrir-app").onclick = () => abrirAplicativo("ifood");
-    document.getElementById("noventa-abrir-app").onclick = () => abrirAplicativo("noventa");
+    document.getElementById("atalho-ifood").onclick = () => pedirAbertura("ifood");
+    document.getElementById("atalho-noventa").onclick = () => pedirAbertura("noventa");
+    document.getElementById("abrir-ifood").onclick = () => pedirAbertura("ifood");
+    document.getElementById("abrir-noventa").onclick = () => pedirAbertura("noventa");
+    document.getElementById("ifood-abrir-app").onclick = () => pedirAbertura("ifood");
+    document.getElementById("noventa-abrir-app").onclick = () => pedirAbertura("noventa");
+    ["ok-loja-aberta", "ok-precos", "ok-banco-dia"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", atualizarBotaoCanal);
+    });
+    document.getElementById("canal-cancelar").onclick = () => {
+      canalPendente = "";
+      document.getElementById("canal-fundo").classList.remove("aberto");
+    };
+    document.getElementById("canal-confirmar").onclick = () => {
+      const canal = canalPendente;
+      document.getElementById("canal-fundo").classList.remove("aberto");
+      if (canal) abrirAplicativo(canal);
+    };
+    document.getElementById("ifood-zero").onclick = () => {
+      document.getElementById("ifood-saldo").value = dinheiro(0);
+      sujo.ifood = true;
+      anotarPasso("ifood");
+    };
+    document.getElementById("noventa-zero").onclick = () => {
+      document.getElementById("noventa-saldo").value = dinheiro(0);
+      sujo.noventa = true;
+      anotarPasso("noventa");
+    };
+    document.getElementById("banco-zero").onclick = () => {
+      document.getElementById("banco-empresa").value = dinheiro(0);
+      sujo.banco = true;
+      anotarPasso("banco");
+    };
     document.getElementById("zap-abrir").onclick = async () => {
       if (!ultimoPedidoZap) {
         mostrarZap("Finalize uma venda para abrir a conversa com o cupom. Os contatos já podem ir para a agenda.");
@@ -2911,6 +3106,7 @@
 
     let ultimoResumo = { mes: {}, geral: {}, taxas: [] };
     let ultimoAlmox = [];
+    let ultimoCozinha = [];
     let ultimoCaixa = 0;
     const EXEMPLO = {
       taxas: [
@@ -2920,6 +3116,7 @@
         { id: "ALM-EX-FAR", cupom: "8841", item: "Farinha", valor: 12, quantidade: 1000, unidade: "g", uso: 200, rendimento: 5, sobra: 0, custoPorcao: 2.4, usos: ["01/10/2026 11:00", "08/10/2026 15:20"] },
         { id: "ALM-EX-LEITE", cupom: "8841", item: "Leite condensado", valor: 18, quantidade: 395, unidade: "g", uso: 79, rendimento: 5, sobra: 0, custoPorcao: 3.6, usos: ["08/10/2026 15:20"] }
       ],
+      fornada: { id: "FOR-EX", doce: "Biscoito Amanteigado (M)", quantidade: 12, mantimentos: ["Farinha", "Leite condensado"], custo: 6, criadoEm: "13/10/2026 18:40", exemplo: true },
       bancos: {
         empresaSaldo: 1850,
         nubankSaldo: 640.3,
@@ -2997,6 +3194,7 @@
       document.getElementById("resumo-dica").textContent =
         "Isto é exemplo, por cima da venda real. " + document.getElementById("resumo-dica").textContent;
       desenharAlmox(EXEMPLO.almox.concat(ultimoAlmox));
+      desenharCozinha([EXEMPLO.fornada].concat(ultimoCozinha), EXEMPLO.almox.concat(ultimoAlmox));
       document.getElementById("admin-login").hidden = true;
       document.getElementById("admin-painel").hidden = false;
       preencherBancos(EXEMPLO.bancos);
@@ -3015,6 +3213,7 @@
       document.getElementById("casa-guardar").disabled = true;
       document.getElementById("casa-lancar").disabled = true;
       document.getElementById("casa-cartao-add").disabled = true;
+      document.getElementById("cozinha-lancar").disabled = true;
       sujo = { ifood: false, noventa: false, banco: false, gaveta: false };
       digitado = { ifood: false, noventa: false, banco: false, gaveta: false };
       carregarRobo();
@@ -3027,6 +3226,7 @@
       botao.className = "acao claro";
       desenharResumo(ultimoResumo);
       desenharAlmox(ultimoAlmox);
+      desenharCozinha(ultimoCozinha, ultimoAlmox);
       document.getElementById("banco-salvar").disabled = false;
       document.getElementById("gaveta-salvar").disabled = false;
       document.getElementById("passar-banco").disabled = false;
@@ -3039,6 +3239,7 @@
       document.getElementById("casa-guardar").disabled = false;
       document.getElementById("casa-lancar").disabled = false;
       document.getElementById("casa-cartao-add").disabled = false;
+      document.getElementById("cozinha-lancar").disabled = false;
       document.getElementById("banco-aviso").textContent = "";
       document.getElementById("banco-aviso").className = "aviso";
       sujo = { ifood: false, noventa: false, banco: false, gaveta: false };
@@ -3140,6 +3341,267 @@
       lista.querySelectorAll("[data-alm]").forEach((botao) => {
         botao.onclick = () => apagarMantimento(botao.dataset.alm);
       });
+    }
+
+    function restamReceitas(item) {
+      return (Number(item.rendimento) || 0) - ((item.usos || []).length);
+    }
+
+    function almoxDaTela() {
+      return fantasmaLigado() ? EXEMPLO.almox.concat(ultimoAlmox) : ultimoAlmox;
+    }
+
+    function atualizarContaCozinha() {
+      const nota = document.getElementById("cozinha-conta");
+      const marcados = [...document.querySelectorAll("#cozinha-mantimentos input:checked")].map((campo) => campo.value);
+      const itens = almoxDaTela().filter((item) => marcados.includes(item.id));
+      const custo = itens.reduce((soma, item) => soma + (Number(item.custoPorcao) || 0), 0);
+      const qtd = Number(document.getElementById("cozinha-qtd").value) || 0;
+      if (qtd < 1) {
+        nota.textContent = "Informe quantos doces saíram.";
+        return;
+      }
+      if (!itens.length) {
+        nota.textContent = "Nenhum mantimento marcado. A fornada fica anotada e o depósito não muda.";
+        return;
+      }
+      nota.textContent = `Esta fornada gasta uma receita de cada um. O mantimento desta leva custa ${dinheiro(custo)}.`;
+    }
+
+    function desenharCozinha(fornadas, almox) {
+      const lista = document.getElementById("cozinha-lista");
+      const resto = document.getElementById("cozinha-resto");
+      const select = document.getElementById("cozinha-doce");
+      const marcado = new Set([...document.querySelectorAll("#cozinha-mantimentos input:checked")].map((campo) => campo.value));
+      const doceAtual = select.value;
+      const doces = (cardapioCache || []).filter((item) => item && item.ativo !== false && item.nome);
+      select.innerHTML = doces.length
+        ? doces.map((item) => `<option value="${escapar(item.id)}">${escapar(item.nome)}</option>`).join("")
+        : `<option value="">O cardápio ainda não tem doce</option>`;
+      if (doceAtual && [...select.options].some((opcao) => opcao.value === doceAtual)) select.value = doceAtual;
+      const disponiveis = (almox || []).filter((item) => restamReceitas(item) > 0);
+      resto.innerHTML = disponiveis.length
+        ? `<p class="nota">Ainda dá receita: ${disponiveis.map((item) => `${escapar(item.item)} (${restamReceitas(item)})`).join(", ")}.</p>`
+        : `<p class="nota">O depósito não tem receita sobrando. A fornada pode ser anotada mesmo assim.</p>`;
+      document.getElementById("cozinha-mantimentos").innerHTML = disponiveis.map((item) => `
+        <label class="check-robo"><input type="checkbox" value="${escapar(item.id)}" ${marcado.has(item.id) ? "checked" : ""} ${String(item.id).startsWith("ALM-EX") ? "disabled" : ""}> ${escapar(item.item)} — restam ${restamReceitas(item)} — ${dinheiro(item.custoPorcao)} a receita</label>
+      `).join("") || `<p class="vazio">Nenhum mantimento com receita sobrando.</p>`;
+      document.querySelectorAll("#cozinha-mantimentos input").forEach((campo) => {
+        campo.addEventListener("change", atualizarContaCozinha);
+      });
+      if (!fornadas.length) {
+        lista.className = "vazio";
+        lista.textContent = "Nenhuma fornada ainda. Escolha o doce, diga quantos saíram e marque o que usou.";
+      } else {
+        lista.className = "";
+        lista.innerHTML = fornadas.map((item) => `
+          <article class="ficha">
+            <h3>${escapar(item.quantidade)} ${escapar(item.doce)}</h3>
+            <div>${escapar(item.criadoEm)}. ${item.mantimentos && item.mantimentos.length ? `Usou ${escapar(item.mantimentos.join(", "))}.` : "Não marcou mantimento."} Custo do mantimento ${dinheiro(item.custo || 0)}.</div>
+            <button class="mini" type="button" data-fornada="${escapar(item.id)}" ${item.exemplo || String(item.id).startsWith("FOR-EX") ? "disabled" : ""}>${item.exemplo || String(item.id).startsWith("FOR-EX") ? "Exemplo" : "Apagar fornada"}</button>
+          </article>
+        `).join("");
+        lista.querySelectorAll("[data-fornada]").forEach((botao) => {
+          botao.onclick = () => apagarFornada(botao.dataset.fornada);
+        });
+      }
+      atualizarContaCozinha();
+    }
+
+    function temRestricao(texto) {
+      const baixo = String(texto || "").toLowerCase();
+      return ["alerg", "restri", "intoler", "gluten", "glúten", "lactose", "amendoim", "castanha", "nozes", "diabetes"].some((chave) => baixo.includes(chave));
+    }
+
+    function dataCurta(valor) {
+      const texto = String(valor || "");
+      const parte = texto.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(parte)) return `${parte.slice(8, 10)}/${parte.slice(5, 7)}/${parte.slice(0, 4)}`;
+      return texto;
+    }
+
+    function filaDaCozinha(lista) {
+      const base = Array.isArray(lista) ? lista : (pedidosCache || []);
+      return base.filter((pedido) => pedido && pedido.cozinhaStatus === "NA_COZINHA");
+    }
+
+    function pintarAbaCozinha(fila) {
+      const botao = document.querySelector('[data-aba="cozinha"]');
+      if (!botao) return;
+      botao.classList.remove("cozinha-ok", "cozinha-alerta");
+      if (!fila.length) return;
+      botao.classList.add(fila.some((pedido) => temRestricao(pedido.observacoes)) ? "cozinha-alerta" : "cozinha-ok");
+    }
+
+    function desenharEsperaFinanceiro() {
+      const lista = document.getElementById("lista-cozinha-financeiro");
+      if (!lista) return;
+      const prontos = (pedidosCache || []).filter((pedido) => pedido.cozinhaStatus === "PRONTO");
+      if (!prontos.length) {
+        lista.className = "vazio";
+        lista.textContent = "Nenhum pedido pronto ainda.";
+        return;
+      }
+      lista.className = "";
+      lista.innerHTML = prontos.map((pedido) => `
+        <article class="ficha">
+          <h3>${escapar(pedido.nome)} <span class="selo">Aguardando o fechamento</span></h3>
+          <div>${escapar(pedido.orderId)} · pronto ${escapar(pedido.prontoEm || "")}</div>
+          <div>${escapar(pedido.pagamento || "")} · ${escapar(pedido.entrega || "")}</div>
+        </article>
+      `).join("");
+    }
+
+    let pedidoProntoAtual = null;
+
+    function desenharFilaCozinha(lista) {
+      const fila = filaDaCozinha(lista);
+      const alvo = document.getElementById("fila-cozinha");
+      pintarAbaCozinha(fila);
+      if (!alvo) return;
+      if (!fila.length) {
+        alvo.className = "vazio";
+        alvo.textContent = "Nenhuma venda na cozinha.";
+        return;
+      }
+      alvo.className = "";
+      alvo.innerHTML = fila.map((pedido) => {
+        const restricao = temRestricao(pedido.observacoes);
+        return `
+          <article class="ficha fila-pedido ${restricao ? "restricao" : ""}" data-guia="${escapar(pedido.orderId)}">
+            <h3>${escapar(pedido.nome)} <span class="${restricao ? "selo-alerta" : "selo-ok"}">${restricao ? "Tem restrição" : "Sem restrição"}</span></h3>
+            <div>${escapar(pedido.endereco || "Sem endereço")} · ${escapar(pedido.cep || "")}</div>
+            <div>Entrega ${escapar(dataCurta(pedido.dataEvento) || "sem data")} ${escapar(pedido.horario || "")} · ${escapar(pedido.entrega || "")}</div>
+            <div>Pagamento: ${escapar(pedido.pagamento || "")}</div>
+            <div>Pedido em ${escapar(pedido.criadoEm || "")}</div>
+          </article>`;
+      }).join("");
+      alvo.querySelectorAll("[data-guia]").forEach((cartao) => {
+        cartao.onclick = () => {
+          const pedido = fila.find((item) => item.orderId === cartao.dataset.guia);
+          if (pedido) abrirGuiaCozinha(pedido);
+        };
+      });
+    }
+
+    function abrirGuiaCozinha(pedido) {
+      const restricao = temRestricao(pedido.observacoes);
+      const itens = (pedido.items || []).map((item) => `<div class="item"><span>${escapar(String(item.quantity))}× ${escapar(item.productName)}</span></div>`).join("");
+      document.getElementById("guia-cozinha-card").innerHTML = `
+        <h2>Guia da produção</h2>
+        <p class="${restricao ? "selo-alerta" : "selo-ok"}">${restricao ? "Tem restrição" : "Sem restrição"}</p>
+        <p>${escapar(pedido.observacoes || "Nenhuma alergia ou observação.")}</p>
+        <h3>${escapar(pedido.nome)}</h3>
+        <div>${escapar(pedido.endereco || "Sem endereço")}</div>
+        <div>Entrega ${escapar(dataCurta(pedido.dataEvento) || "sem data")} às ${escapar(pedido.horario || "sem hora")}</div>
+        <div>${escapar(pedido.entrega || "")}${pedido.distanciaKm ? ` · ${Number(pedido.distanciaKm).toLocaleString("pt-BR")} km` : ""}</div>
+        <div>Pagamento: ${escapar(pedido.pagamento || "")}</div>
+        <div>Pedido em ${escapar(pedido.criadoEm || "")}</div>
+        <hr>
+        ${itens || "<div>Nenhum doce neste pedido.</div>"}
+        <div class="acoes">
+          <button class="acao" type="button" id="guia-pronto">O produto está pronto</button>
+          <button class="acao claro" type="button" id="guia-fechar">Fechar</button>
+        </div>`;
+      document.getElementById("guia-cozinha").classList.add("aberto");
+      document.getElementById("guia-fechar").onclick = () => {
+        document.getElementById("guia-cozinha").classList.remove("aberto");
+      };
+      document.getElementById("guia-pronto").onclick = () => prepararAviso(pedido);
+    }
+
+    async function prepararAviso(pedido) {
+      const aviso = document.getElementById("pronto-aviso");
+      if (String(pedido.orderId || "").startsWith("ORD-EX")) {
+        pedidoProntoAtual = pedido;
+        document.getElementById("pronto-guia").textContent = "Exemplo. Nada é enviado.";
+        document.getElementById("pronto-mensagem").textContent = "Olá! Seu pedido está pronto. Fique atenta.";
+        document.getElementById("pronto-senha-bloco").hidden = true;
+        document.getElementById("pronto-senha").value = "";
+        document.getElementById("pronto-senha-admin").value = "";
+        aviso.textContent = "";
+        document.getElementById("guia-cozinha").classList.remove("aberto");
+        document.getElementById("pronto-fundo").classList.add("aberto");
+        return;
+      }
+      const resposta = await fetch(`/api/pedidos/${pedido.orderId}/aviso`);
+      const corpo = await resposta.json();
+      if (!resposta.ok) {
+        aviso.textContent = corpo.detail || "Não foi possível montar o aviso.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      pedidoProntoAtual = pedido;
+      document.getElementById("pronto-guia").textContent = corpo.guia;
+      document.getElementById("pronto-mensagem").textContent = corpo.mensagem;
+      document.getElementById("pronto-senha-bloco").hidden = true;
+      document.getElementById("pronto-senha").value = "";
+      document.getElementById("pronto-senha-admin").value = "";
+      aviso.textContent = "";
+      aviso.className = "aviso";
+      document.getElementById("guia-cozinha").classList.remove("aberto");
+      document.getElementById("pronto-fundo").classList.add("aberto");
+    }
+
+    async function mandarAvisoPronto() {
+      const aviso = document.getElementById("pronto-aviso");
+      const pedido = pedidoProntoAtual;
+      if (!pedido) return;
+      if (fantasmaLigado() || String(pedido.orderId || "").startsWith("ORD-EX")) {
+        aviso.textContent = "O exemplo fica na tela. A cliente não recebe aviso.";
+        aviso.className = "aviso ok";
+        return;
+      }
+      const mensagem = document.getElementById("pronto-mensagem").textContent.trim();
+      if (!mensagem) {
+        aviso.textContent = "O aviso ainda não foi montado.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      try {
+        await abrirWhatsappNoComputador(pedido.telefone, mensagem, "");
+      } catch (erro) {
+        aviso.textContent = erro.message;
+        aviso.className = "aviso erro";
+        return;
+      }
+      const resposta = await fetch(`/api/pedidos/${pedido.orderId}/pronto`, { method: "POST" });
+      const corpo = await resposta.json();
+      if (!resposta.ok) {
+        aviso.textContent = `${corpo.detail || "O WhatsApp saiu, mas o pedido não entrou no financeiro."}`;
+        aviso.className = "aviso erro";
+        return;
+      }
+      aviso.textContent = "Aviso enviado. O pedido foi para o financeiro, aguardando o fechamento.";
+      aviso.className = "aviso ok";
+      await carregarListas();
+      document.getElementById("pronto-fundo").classList.remove("aberto");
+    }
+
+    async function confirmarCancelamentoAviso() {
+      const aviso = document.getElementById("pronto-aviso");
+      const senha = document.getElementById("pronto-senha").value;
+      const senhaAdmin = document.getElementById("pronto-senha-admin").value;
+      if (!senha.trim() || !senhaAdmin.trim()) {
+        aviso.textContent = "Digite a senha da loja e a senha administrativa.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      const resposta = await fetch("/api/loja/senha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senha, senhaAdmin })
+      });
+      const corpo = await resposta.json();
+      if (!resposta.ok) {
+        aviso.textContent = corpo.detail || "A senha não confere.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      document.getElementById("pronto-senha").value = "";
+      document.getElementById("pronto-senha-admin").value = "";
+      document.getElementById("pronto-fundo").classList.remove("aberto");
+      aviso.textContent = "";
     }
 
     function contaAlmox() {
@@ -4105,9 +4567,9 @@
 
     function passosGuia() {
       return [
-        { id: "ifood", hoje: !!ultimoRobo.ifoodHoje && !sujo.ifood, digitado: digitado.ifood, falta: "Falta o valor de vendas do iFood", salve: "Salve o valor de vendas do iFood", aba: "aba-ifood", campo: "ifood-saldo", aviso: "Valor de vendas do iFood anotado. Salve na aba Banco e siga para o 99Food." },
-        { id: "noventa", hoje: !!ultimoRobo.noventaHoje && !sujo.noventa, digitado: digitado.noventa, falta: "Falta o valor de vendas do 99Food", salve: "Salve o valor de vendas do 99Food", aba: "aba-noventa", campo: "noventa-saldo", aviso: "Valor de vendas do 99Food anotado. Salve na aba Banco e siga para o banco." },
-        { id: "banco", hoje: !!ultimoRobo.bancoHoje && !sujo.banco, digitado: digitado.banco, falta: "Falta atualizar o banco", salve: "Salve o iFood, o 99Food e o banco", aba: "aba-banco", campo: "banco-empresa", aviso: "Banco anotado. Salve os três na aba Banco. Depois conte a gaveta." },
+        { id: "ifood", hoje: !!ultimoRobo.ifoodHoje && !sujo.ifood, digitado: digitado.ifood, falta: "Confirme o iFood. Se não vendeu, use Não vendi hoje", salve: "Salve o iFood na aba Banco", aba: "aba-ifood", campo: "ifood-saldo", aviso: "iFood anotado. Salve na aba Banco e siga para o 99Food." },
+        { id: "noventa", hoje: !!ultimoRobo.noventaHoje && !sujo.noventa, digitado: digitado.noventa, falta: "Confirme o 99Food. Se não vendeu, use Não vendi hoje", salve: "Salve o 99Food na aba Banco", aba: "aba-noventa", campo: "noventa-saldo", aviso: "99Food anotado. Salve na aba Banco e siga para o banco." },
+        { id: "banco", hoje: !!ultimoRobo.bancoHoje && !sujo.banco, digitado: digitado.banco, falta: "Confirme o banco. Se a conta empresa estiver zerada, use Conta zerada", salve: "Salve o iFood, o 99Food e o banco", aba: "aba-banco", campo: "banco-empresa", aviso: "Banco anotado. Salve os três na aba Banco. Depois conte a gaveta." },
         { id: "gaveta", hoje: !!ultimoRobo.gavetaHoje && !sujo.gaveta, digitado: digitado.gaveta, falta: "Falta contar a gaveta", salve: "Salve a contagem da gaveta", aba: "financeiro", campo: "gaveta-contado", aviso: "Contagem anotada. Veja a diferença e salve no Financeiro." }
       ];
     }
@@ -4302,6 +4764,11 @@
         aviso.className = "aviso erro";
         return;
       }
+      if (!corpo.moveu) {
+        aviso.textContent = "Nada saiu da gaveta hoje. A conta empresa continua igual.";
+        aviso.className = "aviso ok";
+        return;
+      }
       aviso.textContent = `${dinheiro(corpo.valor)} saiu da gaveta e entrou na conta empresa. Conte a gaveta de novo.`;
       aviso.className = "aviso ok";
       document.getElementById("passar-valor").value = dinheiro(0);
@@ -4438,14 +4905,15 @@
     }
 
     async function carregarListas() {
-      const [caixa, pedidos, livro, clientes, cardapio, resumo, almox] = await Promise.all([
+      const [caixa, pedidos, livro, clientes, cardapio, resumo, almox, cozinha] = await Promise.all([
         fetch("/api/caixa").then((r) => r.json()),
         fetch("/api/pedidos").then((r) => r.json()),
         fetch("/api/financeiro").then((r) => r.json()),
         fetch("/api/clientes").then((r) => r.json()),
         fetch("/api/cardapio").then((r) => r.json()),
         fetch("/api/financeiro/resumo").then((r) => r.json()),
-        fetch("/api/almoxarifado").then((r) => r.json())
+        fetch("/api/almoxarifado").then((r) => r.json()),
+        fetch("/api/cozinha").then((r) => r.json())
       ]);
       cardapioCache = cardapio;
       preencherProdutos();
@@ -4459,7 +4927,9 @@
       caixaConhecido = true;
       desenharSoneca();
       atualizarGuia();
-      pedidosCache = pedidos;
+      pedidosCache = Array.isArray(pedidos) ? pedidos : [];
+      desenharFilaCozinha();
+      desenharEsperaFinanceiro();
       desenharAgenda();
       const movimento = livro.filter((l) => l.tipo !== "RESULTADO");
       const listaLivro = document.getElementById("lista-financeiro");
@@ -4472,8 +4942,10 @@
       desenharCancelamento();
       ultimoResumo = resumo;
       ultimoAlmox = almox;
+      ultimoCozinha = Array.isArray(cozinha) ? cozinha : [];
       desenharResumo(resumo);
       desenharAlmox(almox);
+      desenharCozinha(ultimoCozinha, almox);
       if (fantasmaLigado()) aplicarFantasma();
       await carregarRobo();
       await carregarImpressoras();
@@ -4950,6 +5422,62 @@
       await carregarListas();
     }
 
+    async function apagarFornada(id) {
+      if (fantasmaLigado() || String(id).startsWith("FOR-EX")) return;
+      const resposta = await fetch(`/api/cozinha/${id}`, { method: "DELETE" });
+      const corpo = await resposta.json();
+      const aviso = document.getElementById("cozinha-aviso");
+      if (!resposta.ok) {
+        aviso.textContent = corpo.detail || "Não foi possível apagar a fornada.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      aviso.textContent = "Fornada apagada. A receita voltou para o depósito.";
+      aviso.className = "aviso ok";
+      await carregarListas();
+    }
+
+    async function lancarFornada() {
+      const aviso = document.getElementById("cozinha-aviso");
+      if (fantasmaLigado()) {
+        aviso.textContent = "O exemplo fica na tela. A cozinha da loja não muda.";
+        aviso.className = "aviso ok";
+        return;
+      }
+      const select = document.getElementById("cozinha-doce");
+      const doce = select.options[select.selectedIndex];
+      const quantidade = Number(document.getElementById("cozinha-qtd").value) || 0;
+      if (!select.value || quantidade < 1) {
+        aviso.textContent = quantidade < 1 ? "Informe quantos doces saíram." : "Escolha o doce que saiu do forno.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      const mantimentos = [...document.querySelectorAll("#cozinha-mantimentos input:checked")].map((campo) => campo.value);
+      const resposta = await fetch("/api/cozinha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doceId: select.value,
+          doce: doce ? doce.textContent : "",
+          quantidade,
+          mantimentos
+        })
+      });
+      const corpo = await resposta.json();
+      if (!resposta.ok) {
+        aviso.textContent = corpo.detail || "Não foi possível anotar a fornada.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      const usou = (corpo.fornada.mantimentos || []).length
+        ? ` Gastou uma receita de ${corpo.fornada.mantimentos.join(", ")}.`
+        : " O depósito não mudou.";
+      aviso.textContent = `${corpo.fornada.quantidade} ${corpo.fornada.doce} saíram do forno.${usou}`;
+      aviso.className = "aviso ok";
+      document.getElementById("cozinha-qtd").value = 1;
+      await carregarListas();
+    }
+
     function desenharResultado(livro) {
       const lista = document.getElementById("lista-resultado");
       const linhas = livro.filter((l) => l.tipo === "RESULTADO");
@@ -5099,7 +5627,9 @@
     }
 
     function abrirTutorialFiscal() {
-      document.getElementById("tutorial-fiscal").classList.add("aberto");
+      irPara("informativo");
+      const alvo = document.getElementById("info-fiscal");
+      if (alvo) alvo.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
     document.getElementById("cpf").addEventListener("input", (evento) => {
@@ -5581,6 +6111,16 @@
       avisoAlm.className = resposta.ok ? "aviso ok" : "aviso erro";
       if (resposta.ok) await carregarListas();
     };
+    document.getElementById("cozinha-qtd").addEventListener("input", atualizarContaCozinha);
+    document.getElementById("cozinha-lancar").onclick = lancarFornada;
+    document.getElementById("pronto-mandar").onclick = mandarAvisoPronto;
+    document.getElementById("pronto-cancelar").onclick = () => {
+      document.getElementById("pronto-senha-bloco").hidden = false;
+      document.getElementById("pronto-senha").focus();
+    };
+    document.getElementById("pronto-senha-ok").onclick = confirmarCancelamentoAviso;
+    desenharCozinha([], []);
+    desenharFilaCozinha([]);
     function mostrarAdmin(dados) {
       document.getElementById("admin-login").hidden = true;
       document.getElementById("admin-painel").hidden = false;
@@ -5796,7 +6336,8 @@
       document.getElementById("login-fundo").classList.remove("aberto");
       carregarListas();
       if (!localStorage.getItem("pdv-tutorial-visto")) {
-        document.getElementById("tutorial-fundo").classList.add("aberto");
+        irPara("informativo");
+        localStorage.setItem("pdv-tutorial-visto", "1");
       }
     }
 
@@ -5858,9 +6399,6 @@
       if (corpo.token) sessionStorage.setItem("adminToken", corpo.token);
       aviso.textContent = "";
       abrirLoja();
-    };
-    document.getElementById("abrir-tutorial").onclick = () => {
-      document.getElementById("tutorial-fundo").classList.add("aberto");
     };
     document.getElementById("tutorial-entendi").onclick = () => {
       localStorage.setItem("pdv-tutorial-visto", "1");

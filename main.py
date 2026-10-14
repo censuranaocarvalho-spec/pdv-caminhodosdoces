@@ -50,6 +50,7 @@ PRAZO_RECIBO_DIAS = 365
 PERFIL_WHATSAPP = os.path.join(RAIZ, "dados", "whatsapp-perfil")
 PORTA_WHATSAPP = 9333
 JUROS_MES = 0.0199
+WHATSAPP_DONA = "5561994429261"
 REDES_LOJA = (
     ("WhatsApp", "https://wa.me/5561994429261"),
     ("Instagram", "https://www.instagram.com/caminhodosdoces/"),
@@ -94,6 +95,7 @@ LIVRO_CAIXA = []
 CLIENTES = []
 CARDAPIO = []
 ALMOXARIFADO = []
+COZINHA = []
 TAXAS_PAGAS = []
 FOLHA = []
 ADMIN = {}
@@ -219,6 +221,7 @@ def carregar():
     LIVRO_CAIXA[:] = dados.get("livro", [])
     CLIENTES[:] = dados.get("clientes", [])
     ALMOXARIFADO[:] = dados.get("almoxarifado", [])
+    COZINHA[:] = dados.get("cozinha", [])
     TAXAS_PAGAS[:] = dados.get("taxas", [])
     FOLHA[:] = dados.get("folha", [])
     TAREFAS[:] = dados.get("tarefas", [])
@@ -249,6 +252,7 @@ def salvar():
                 "clientes": CLIENTES,
                 "cardapio": CARDAPIO,
                 "almoxarifado": ALMOXARIFADO,
+                "cozinha": COZINHA,
                 "taxas": TAXAS_PAGAS,
                 "folha": FOLHA,
                 "tarefas": TAREFAS,
@@ -397,6 +401,11 @@ def cpf_formatado(cpf: str) -> str:
             detail="CPF inválido. Use 000.000.000-00, sem número repetido ou inventado.",
         )
     return f"{digitos[:3]}.{digitos[3:6]}.{digitos[6:9]}-{digitos[9:]}"
+
+
+def mesmo_fone(um: str, outro: str) -> bool:
+    chave = telefone_chave(um)
+    return bool(chave) and chave == telefone_chave(outro)
 
 
 def telefone_whatsapp(telefone: str) -> str:
@@ -1061,8 +1070,53 @@ def abrir_whatsapp_no_computador(telefone: str, texto: str, pedido: str = "") ->
         if venda:
             texto = legenda_redes(venda["nome"], venda.get("cupomTipo") or "")
         aba = garantir_whatsapp("https://web.whatsapp.com/")
-        enviar_pdf_no_whatsapp(aba, telefone, texto, pdf)
-        return {"aberto": True, "pdf": True}
+        try:
+            enviar_pdf_no_whatsapp(aba, telefone, texto, pdf)
+        except HTTPException as erro:
+            detalhe = erro.detail if isinstance(erro.detail, str) else ""
+            if mesmo_fone(telefone, WHATSAPP_DONA) and "não abriu conversa" in detalhe:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Esse número é o WhatsApp dela. O cupom não entra numa conversa com o próprio aparelho. O PDF ficou nesta tela para ela encaminhar.",
+                ) from erro
+            raise
+        for _ in range(20):
+            time.sleep(0.3)
+            if not avaliar_na_aba(
+                aba,
+                "!!document.querySelector('[data-icon=\"wds-ic-send-filled\"]')",
+                aguardar=False,
+            ):
+                break
+        if mesmo_fone(telefone, WHATSAPP_DONA):
+            return {
+                "aberto": True,
+                "pdf": True,
+                "copia": True,
+                "aviso": "Ela recebeu o PDF no WhatsApp.",
+            }
+        try:
+            enviar_pdf_no_whatsapp(
+                aba,
+                WHATSAPP_DONA,
+                f"Cópia do cupom para a loja.\n\n{texto}",
+                pdf,
+            )
+        except HTTPException as erro:
+            detalhe = erro.detail if isinstance(erro.detail, str) else ""
+            if "não abriu conversa" in detalhe:
+                detalhe = "O PDF saiu para a cliente. No celular dela, a mensagem fica nessa conversa. O WhatsApp da loja não manda uma segunda cópia para o próprio número."
+            return {
+                "aberto": True,
+                "pdf": True,
+                "copia": False,
+                "aviso": detalhe or "A cópia para ela não saiu. O cupom da cliente foi enviado.",
+            }
+        return {"aberto": True, "pdf": True, "copia": True, "aviso": "Ela recebeu a cópia do PDF no WhatsApp."}
+    if telefone.strip() and texto.strip():
+        aba = garantir_whatsapp("https://web.whatsapp.com/")
+        enviar_texto_no_whatsapp(aba, telefone, texto)
+        return {"aberto": True, "pdf": False, "enviado": True}
     if telefone.strip():
         url = f"https://web.whatsapp.com/send?phone={telefone_whatsapp(telefone)}&text={quote(texto)}"
     else:
@@ -1071,6 +1125,30 @@ def abrir_whatsapp_no_computador(telefone: str, texto: str, pedido: str = "") ->
     if telefone.strip() or "web.whatsapp.com" not in aba.get("url", ""):
         navegar_aba(aba, url)
     return {"aberto": True, "pdf": False}
+
+
+def enviar_texto_no_whatsapp(aba: dict, telefone: str, texto: str) -> None:
+    navegar_aba(aba, f"https://web.whatsapp.com/send?phone={telefone_whatsapp(telefone)}&text={quote(texto)}")
+    for _ in range(25):
+        time.sleep(0.4)
+        clicou = avaliar_na_aba(
+            aba,
+            """(() => {
+              const botao = [...document.querySelectorAll('button,[role="button"],div[aria-label]')].find((el) =>
+                (el.getAttribute('aria-label') || '').startsWith('Enviar')
+              );
+              if (botao) { botao.click(); return true; }
+              const icone = document.querySelector('[data-icon="wds-ic-send-filled"]');
+              const alvo = icone && (icone.closest('button') || icone.closest('[role="button"]') || icone.parentElement);
+              if (!alvo) return false;
+              alvo.click();
+              return true;
+            })()""",
+            aguardar=False,
+        )
+        if clicou:
+            return
+    raise HTTPException(status_code=400, detail="O aviso ficou escrito no WhatsApp, mas o envio não saiu.")
 
 
 def importar_contatos_whatsapp() -> dict:
@@ -1325,6 +1403,60 @@ def km_de_carro(lat: float, lng: float) -> float:
     )
     metros = float(rota["routes"][0]["distance"])
     return round(math.ceil(metros / 100) / 10, 1)
+
+
+PALAVRAS_RESTRICAO = (
+    "alerg", "restri", "intoler", "gluten", "glúten", "lactose",
+    "amendoim", "castanha", "nozes", "diabetes",
+)
+
+
+def tem_restricao(texto: str) -> bool:
+    baixo = (texto or "").lower()
+    return any(palavra in baixo for palavra in PALAVRAS_RESTRICAO)
+
+
+def tempo_da_entrega(pedido: dict) -> str:
+    km = float(pedido.get("distanciaKm") or 0)
+    taxa = float(pedido.get("taxaEntrega") or 0)
+    if km <= 0 and taxa > 0:
+        km = round(KM_INCLUSOS + max(taxa - TAXA_MINIMA, 0) / 1.8, 1)
+    if km <= 0:
+        km = KM_INCLUSOS
+    minutos = 10 + math.ceil(km) * 3
+    baixo = max(10, minutos - 5)
+    alto = minutos + 5
+    km_texto = f"{km:.1f}".replace(".", ",")
+    return f"cerca de {km_texto} km, em torno de {baixo} a {alto} minutos"
+
+
+def textos_pronto(pedido: dict) -> dict:
+    nome = ((pedido.get("nome") or "cliente").strip().split() or ["cliente"])[0]
+    entrega = pedido.get("entrega") or ""
+    if entrega in ENTREGAS_DA_LOJA:
+        tempo = tempo_da_entrega(pedido)
+        return {
+            "guia": f"A entrega é {entrega}. O CEP e a taxa dão {tempo}. O aviso pede para a cliente ficar atenta.",
+            "mensagem": (
+                f"Olá, {nome}! Seu pedido na Caminho dos Doces está pronto. "
+                f"Fique atenta: a entrega sai agora, {tempo}."
+            ),
+        }
+    if entrega == "Uber / 99 Entregas":
+        return {
+            "guia": "A corrida é Uber ou 99. Entre em contato com a cliente para combinar a saída. O aviso pede para ela ficar atenta.",
+            "mensagem": (
+                f"Olá, {nome}! Seu pedido na Caminho dos Doces está pronto. "
+                "Fique atenta: a corrida é pelo Uber ou 99 e a loja entra em contato para combinar a saída."
+            ),
+        }
+    return {
+        "guia": "Retirada na loja. O aviso pede para a cliente ficar atenta e buscar o pedido.",
+        "mensagem": (
+            f"Olá, {nome}! Seu pedido na Caminho dos Doces está pronto. "
+            "Fique atenta: pode retirar na loja."
+        ),
+    }
 
 
 def calcular_taxa_entrega(entrega: str, km: float) -> float:
@@ -1825,8 +1957,10 @@ def passar_para_banco(payload: PassagemBanco):
         raise HTTPException(status_code=400, detail="Abra o caixa para passar dinheiro ao banco.")
     valor = round(payload.valor, 2)
     saldo = round(float(CAIXA.get("saldo") or 0), 2)
-    if valor <= 0:
-        raise HTTPException(status_code=400, detail="Informe o valor que sai da gaveta.")
+    if valor < 0:
+        raise HTTPException(status_code=400, detail="O valor não pode ser negativo.")
+    if valor == 0:
+        return {"caixa": CAIXA, "empresaSaldo": ADMIN.get("empresaSaldo") or 0, "valor": 0, "moveu": False}
     if valor > saldo:
         raise HTTPException(status_code=400, detail=f"A gaveta tem {dinheiro(saldo)}.")
     CAIXA["saldo"] = round(saldo - valor, 2)
@@ -1842,7 +1976,7 @@ def passar_para_banco(payload: PassagemBanco):
         "criadoEm": agora_texto(),
     })
     salvar()
-    return {"caixa": CAIXA, "empresaSaldo": ADMIN["empresaSaldo"], "valor": valor}
+    return {"caixa": CAIXA, "empresaSaldo": ADMIN["empresaSaldo"], "valor": valor, "moveu": True}
 
 
 @app.post("/api/caixa/abrir")
@@ -3763,6 +3897,84 @@ class NovoMantimento(BaseModel):
     uso: float
 
 
+class Fornada(BaseModel):
+    doceId: str = ""
+    doce: str
+    quantidade: int = 1
+    mantimentos: list[str] = []
+
+
+def _restam_receitas(item: dict) -> int:
+    return int(item.get("rendimento") or 0) - len(item.get("usos") or [])
+
+
+@app.get("/api/cozinha")
+def listar_cozinha():
+    return list(reversed(COZINHA))
+
+
+@app.post("/api/cozinha", status_code=201)
+def registrar_fornada(payload: Fornada):
+    nome = payload.doce.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Escolha o doce que saiu do forno.")
+    quantidade = int(payload.quantidade or 0)
+    if quantidade < 1:
+        raise HTTPException(status_code=400, detail="Informe quantos doces saíram.")
+    vistos = []
+    for item_id in payload.mantimentos:
+        ident = (item_id or "").strip()
+        if not ident or ident in vistos:
+            continue
+        vistos.append(ident)
+    escolhidos = []
+    for ident in vistos:
+        item = next((entrada for entrada in ALMOXARIFADO if entrada["id"] == ident), None)
+        if not item:
+            raise HTTPException(status_code=400, detail="Um mantimento marcado não está no depósito.")
+        if _restam_receitas(item) < 1:
+            raise HTTPException(status_code=400, detail=f"{item['item']} já foi todo usado.")
+        escolhidos.append(item)
+    quando = agora_texto()
+    marcas = []
+    custo = 0.0
+    for item in escolhidos:
+        item.setdefault("usos", []).append(quando)
+        custo += float(item.get("custoPorcao") or 0)
+        marcas.append({"id": item["id"], "nome": item["item"], "quando": quando})
+    registro = {
+        "id": f"FOR-{uuid.uuid4().hex[:6].upper()}",
+        "doceId": payload.doceId.strip(),
+        "doce": nome,
+        "quantidade": quantidade,
+        "mantimentos": [marca["nome"] for marca in marcas],
+        "marcas": marcas,
+        "custo": round(custo, 2),
+        "criadoEm": quando,
+    }
+    COZINHA.append(registro)
+    salvar()
+    return {"fornada": registro, "almoxarifado": list(reversed(ALMOXARIFADO)), "cozinha": list(reversed(COZINHA))}
+
+
+@app.delete("/api/cozinha/{fornada_id}")
+def apagar_fornada(fornada_id: str):
+    fornada = next((item for item in COZINHA if item["id"] == fornada_id), None)
+    if not fornada:
+        raise HTTPException(status_code=404, detail="Essa fornada não está na cozinha.")
+    for marca in fornada.get("marcas") or []:
+        item = next((entrada for entrada in ALMOXARIFADO if entrada["id"] == marca.get("id")), None)
+        if not item:
+            continue
+        usos = item.get("usos") or []
+        quando = marca.get("quando")
+        if quando in usos:
+            usos.remove(quando)
+    COZINHA[:] = [item for item in COZINHA if item["id"] != fornada_id]
+    salvar()
+    return {"ok": True, "almoxarifado": list(reversed(ALMOXARIFADO)), "cozinha": list(reversed(COZINHA))}
+
+
 @app.get("/api/almoxarifado")
 def listar_almoxarifado():
     return list(reversed(ALMOXARIFADO))
@@ -4327,8 +4539,49 @@ def cancelar_pedido(order_id: str, payload: CancelamentoVenda):
         "motivo": motivo,
         "criadoEm": agora_texto(),
     })
+    pedido["cozinhaStatus"] = "CANCELADO"
     salvar()
     return {"caixa": CAIXA, "orderId": order_id, "motivo": motivo}
+
+
+class SenhaLoja(BaseModel):
+    senha: str
+    senhaAdmin: str = ""
+
+
+@app.post("/api/loja/senha")
+def conferir_senha_acao(payload: SenhaLoja):
+    if not senha_confere(payload.senha.strip()):
+        raise HTTPException(status_code=401, detail="A senha da loja não confere.")
+    if not senha_confere(payload.senhaAdmin.strip()):
+        raise HTTPException(status_code=401, detail="A senha administrativa não confere.")
+    return {"ok": True}
+
+
+@app.get("/api/pedidos/{order_id}/aviso")
+def ler_aviso_pronto(order_id: str):
+    pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Essa venda não está na cozinha.")
+    if pedido.get("cozinhaStatus") == "CANCELADO":
+        raise HTTPException(status_code=400, detail="Essa venda foi cancelada.")
+    return textos_pronto(pedido)
+
+
+@app.post("/api/pedidos/{order_id}/pronto")
+def marcar_pedido_pronto(order_id: str, request: Request):
+    pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Essa venda não está na cozinha.")
+    if pedido.get("cozinhaStatus") == "CANCELADO":
+        raise HTTPException(status_code=400, detail="Essa venda foi cancelada.")
+    textos = textos_pronto(pedido)
+    if pedido.get("cozinhaStatus") != "PRONTO":
+        pedido["cozinhaStatus"] = "PRONTO"
+        pedido["prontoEm"] = agora_texto()
+        pedido["avisoPronto"] = textos
+        salvar()
+    return {"pedido": pedido_publico(request, pedido), **textos}
 
 
 @app.get("/api/entrega/distancia")
@@ -4460,6 +4713,7 @@ def criar_pedido(payload: NovoPedido, request: Request):
         "juros": conta["juros"],
         "criadoEm": agora,
         "cupomTipo": tipo_de_cupom(payload.cupomTipo),
+        "cozinhaStatus": "NA_COZINHA",
     }
     lancamento = {
         "id": f"CX-{uuid.uuid4().hex[:6].upper()}",
