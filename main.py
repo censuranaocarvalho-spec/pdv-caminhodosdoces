@@ -80,6 +80,7 @@ async def trancar_loja(request: Request, call_next):
         or caminho == "/cardapio"
         or caminho.startswith("/cardapio/")
         or caminho == "/api/atualizacao"
+        or caminho == "/api/mercadopago/retorno"
     )
     if livre or not caminho.startswith("/api/"):
         return await call_next(request)
@@ -160,6 +161,8 @@ class NovoPedido(BaseModel):
     valorCobrado: float = -1
     valorPrimeiraParte: float = 0.0
     cupomTipo: str = "NAO_FISCAL"
+    mercadoPago: bool = False
+    emailCliente: str = ""
 
 
 def data_do_pedido(pedido: dict) -> datetime:
@@ -516,6 +519,8 @@ def mesclar_contato(nome: str, telefone: str, origem: str = "WhatsApp") -> dict 
         "observacoes": "",
         "organizado": False,
         "atualizadoEm": agora_texto(),
+        "criadoEm": agora_texto(),
+        "novo": True,
     }
     CLIENTES.append(cliente)
     return cliente
@@ -1473,14 +1478,14 @@ def pedido_publico(request: Request, pedido: dict) -> dict:
     return copia
 
 
-def fechar_pagamento(payload: NovoPedido, base: float) -> dict:
+def fechar_pagamento(payload: NovoPedido, base: float, juros_pdv: bool = True) -> dict:
     metodo = payload.pagamento
     parcelas = payload.parcelas or 1
 
-    if metodo in ("PIX", "DINHEIRO"):
+    if metodo in ("PIX", "DINHEIRO", "DEBITO"):
         sinal = round(base * 0.5, 2)
         restante = round(base - sinal, 2)
-        nome = "PIX" if metodo == "PIX" else "Dinheiro"
+        nome = {"PIX": "PIX", "DINHEIRO": "Dinheiro", "DEBITO": "Débito"}[metodo]
         return {
             "total": base,
             "sinal": sinal,
@@ -1514,9 +1519,11 @@ def fechar_pagamento(payload: NovoPedido, base: float) -> dict:
             raise HTTPException(status_code=400, detail="No crédito, o máximo é 5 vezes.")
         total = base
         juros = ""
-        if parcelas > 1:
+        if parcelas > 1 and juros_pdv:
             total = round(base * (1 + JUROS_MES * parcelas), 2)
             juros = "Juros do parcelamento por conta da cliente."
+        elif parcelas > 1:
+            juros = "Parcelas pelo Mercado Pago. O custo das parcelas está na taxa de serviço."
         vezes = "à vista" if parcelas == 1 else f"{parcelas}x"
         return {
             "total": total,
@@ -1549,9 +1556,12 @@ def fechar_pagamento(payload: NovoPedido, base: float) -> dict:
     if forma_b == "Crédito" and parcelas > 1:
         if parcelas > 5:
             raise HTTPException(status_code=400, detail="No crédito, o máximo é 5 vezes.")
-        valor_b = round(valor_b * (1 + JUROS_MES * parcelas), 2)
         forma_b = f"Crédito {parcelas}x"
-        juros = "Juros do parcelamento por conta da cliente, só sobre a parte do cartão."
+        if juros_pdv:
+            valor_b = round(valor_b * (1 + JUROS_MES * parcelas), 2)
+            juros = "Juros do parcelamento por conta da cliente, só sobre a parte do cartão."
+        else:
+            juros = "Parcelas pelo Mercado Pago. O custo das parcelas está na taxa de serviço."
     elif forma_b == "Crédito":
         forma_b = "Crédito à vista"
 
@@ -2035,6 +2045,12 @@ def pagina_cupom(pedido: dict, link: str) -> str:
         else "<div>Pagamento quitado. Nada pendente na entrega.</div>"
     )
     juros = f"<div class='nota'>{escape(pedido['juros'])}</div>" if pedido.get("juros") else ""
+    taxa_servico = float(pedido.get("taxaServico") or 0)
+    linha_taxa = (
+        f"<div class='item'><span>Taxa de serviço (Mercado Pago)</span><span>{escape(dinheiro(taxa_servico))}</span></div>"
+        if taxa_servico > 0
+        else ""
+    )
     resultado = float(pedido.get("resultado") or 0)
     desconto = ""
     if resultado < 0:
@@ -2092,6 +2108,7 @@ def pagina_cupom(pedido: dict, link: str) -> str:
     {itens}
     <div class="item"><span>Entrega</span><span>{escape(dinheiro(pedido['taxaEntrega']))}</span></div>
     {desconto}
+    {linha_taxa}
     <div class="item"><strong>Total</strong><strong>{escape(dinheiro(pedido['total']))}</strong></div>
     <hr>
     <div>{escape(pedido['pagamento'])}</div>
@@ -2309,6 +2326,7 @@ def organizar_cliente(cliente_id: str, payload: ClienteAgenda):
         cliente["endereco"] = payload.endereco.strip()
         cliente["observacoes"] = payload.observacoes.strip()
         cliente["organizado"] = True
+        cliente["novo"] = False
         cliente["atualizadoEm"] = agora_texto()
         salvar()
         return cliente
@@ -2318,6 +2336,49 @@ def organizar_cliente(cliente_id: str, payload: ClienteAgenda):
 @app.post("/api/whatsapp/contatos")
 def salvar_contatos_whatsapp():
     return importar_contatos_whatsapp()
+
+
+TRAVA_CONFERIR_CLIENTES = threading.Lock()
+
+
+def clientes_novos() -> list[dict]:
+    novos = [cliente for cliente in CLIENTES if cliente.get("novo")]
+    return [
+        {
+            "id": cliente["id"],
+            "nome": cliente.get("nome", ""),
+            "origem": cliente.get("origem", ""),
+            "criadoEm": cliente.get("criadoEm", ""),
+        }
+        for cliente in novos
+    ]
+
+
+@app.post("/api/clientes/conferir")
+def conferir_clientes():
+    if not TRAVA_CONFERIR_CLIENTES.acquire(blocking=False):
+        return {"rodando": True, "novos": clientes_novos(), "whatsapp": ""}
+    try:
+        if incluir_clientes_dos_pedidos():
+            salvar()
+        aviso_whatsapp = ""
+        try:
+            importar_contatos_whatsapp()
+        except HTTPException as erro:
+            aviso_whatsapp = str(erro.detail)
+        except Exception:
+            aviso_whatsapp = "O WhatsApp deste computador não respondeu agora. A agenda foi conferida."
+        return {"rodando": False, "novos": clientes_novos(), "whatsapp": aviso_whatsapp}
+    finally:
+        TRAVA_CONFERIR_CLIENTES.release()
+
+
+@app.post("/api/clientes/novos/vistos")
+def marcar_clientes_vistos():
+    for cliente in CLIENTES:
+        cliente.pop("novo", None)
+    salvar()
+    return {"novos": []}
 
 
 class CancelamentoVenda(BaseModel):
@@ -2354,6 +2415,8 @@ def alterar_pagamento(order_id: str, payload: AlterarPagamento, request: Request
     pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
     if not pedido:
         raise HTTPException(status_code=404, detail="Essa venda não está no caixa.")
+    if any(parte.get("mp") for parte in pedido.get("partes") or []):
+        raise HTTPException(status_code=400, detail="Venda do Mercado Pago não troca a forma de pagamento. Cancele e faça de novo.")
     if "valorCobrado" in pedido:
         base = float(pedido["valorCobrado"])
     else:
@@ -3194,9 +3257,15 @@ def resumo_periodo(so_mes: bool) -> dict:
     for pedido in PEDIDOS:
         if so_mes and not do_mes(pedido.get("criadoEm", "")):
             continue
+        if pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO":
+            continue
         cobrado = float(pedido["valorCobrado"]) if "valorCobrado" in pedido else float(pedido.get("total") or 0)
         if "sinal" in pedido:
-            entrou = float(pedido.get("sinal") or 0) + float(pedido.get("restante") or 0)
+            entrou = (
+                float(pedido.get("sinal") or 0)
+                + float(pedido.get("restante") or 0)
+                - float(pedido.get("taxaServico") or 0)
+            )
         else:
             entrou = cobrado
         bruto += entrou
@@ -4527,21 +4596,29 @@ def cancelar_pedido(order_id: str, payload: CancelamentoVenda):
         lancamento for lancamento in LIVRO_CAIXA
         if not (lancamento.get("orderId") == order_id and lancamento.get("tipo") == "RESULTADO")
     ]
-    CAIXA["saldo"] = round(CAIXA["saldo"] - valor, 2)
-    CAIXA["gavetaEm"] = ""
-    LIVRO_CAIXA.append({
-        "id": f"CX-{uuid.uuid4().hex[:6].upper()}",
-        "orderId": order_id,
-        "descricao": f"Cancelamento {order_id} — {pedido['nome']}",
-        "tipo": "SAIDA",
-        "categoria": "CANCELAMENTO",
-        "valor": valor,
-        "motivo": motivo,
-        "criadoEm": agora_texto(),
-    })
+    esperava = pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO"
+    if not esperava:
+        CAIXA["saldo"] = round(CAIXA["saldo"] - valor, 2)
+        CAIXA["gavetaEm"] = ""
+        LIVRO_CAIXA.append({
+            "id": f"CX-{uuid.uuid4().hex[:6].upper()}",
+            "orderId": order_id,
+            "descricao": f"Cancelamento {order_id} — {pedido['nome']}",
+            "tipo": "SAIDA",
+            "categoria": "CANCELAMENTO",
+            "valor": valor,
+            "motivo": motivo,
+            "criadoEm": agora_texto(),
+        })
     pedido["cozinhaStatus"] = "CANCELADO"
     salvar()
-    return {"caixa": CAIXA, "orderId": order_id, "motivo": motivo}
+    pago_mp = sum(float(p.get("valor") or 0) for p in pedido.get("partes") or [] if p.get("mp") and p.get("status") == "PAGO")
+    aviso_mp = (
+        f"{dinheiro(pago_mp)} já caiu no Mercado Pago. Devolva à cliente pelo painel do Mercado Pago."
+        if pago_mp > 0
+        else ""
+    )
+    return {"caixa": CAIXA, "orderId": order_id, "motivo": motivo, "avisoMercadoPago": aviso_mp}
 
 
 class SenhaLoja(BaseModel):
@@ -4677,7 +4754,20 @@ def criar_pedido(payload: NovoPedido, request: Request):
     valor_tabela = round(subtotal + taxa, 2)
     valor_cobrado = valor_tabela if payload.valorCobrado < 0 else round(max(payload.valorCobrado, 0), 2)
     resultado = round(valor_cobrado - valor_tabela, 2)
-    conta = fechar_pagamento(payload, valor_cobrado)
+    email_cliente = ""
+    if payload.mercadoPago and not ler_mp().get("accessToken"):
+        raise HTTPException(status_code=400, detail="O Mercado Pago não está conectado. Desmarque Receber pelo Mercado Pago ou conecte no Administrativo.")
+    conta = fechar_pagamento(payload, valor_cobrado, juros_pdv=not payload.mercadoPago)
+    if payload.mercadoPago:
+        aplicar_taxa_mp(conta, payload.parcelas or 1)
+        partes_mp = [parte for parte in conta["partes"] if parte.get("mp")]
+        if not partes_mp:
+            raise HTTPException(status_code=400, detail="Dinheiro não passa pelo Mercado Pago. Desmarque Receber pelo Mercado Pago.")
+        if any(parte["mp"] == "PIX" for parte in partes_mp):
+            email_cliente = email_valido(payload.emailCliente)
+            if not email_cliente:
+                raise HTTPException(status_code=400, detail="O Pix do Mercado Pago pede o e-mail da cliente.")
+    espera_mp = any(parte.get("mp") for parte in conta["partes"])
     tipo_lancamento = "SINAL" if conta["restante"] > 0 else "VENDA"
 
     pedido_id = f"ORD-{uuid.uuid4().hex[:6].upper()}"
@@ -4713,26 +4803,18 @@ def criar_pedido(payload: NovoPedido, request: Request):
         "juros": conta["juros"],
         "criadoEm": agora,
         "cupomTipo": tipo_de_cupom(payload.cupomTipo),
-        "cozinhaStatus": "NA_COZINHA",
+        "cozinhaStatus": "AGUARDANDO_PAGAMENTO" if espera_mp else "NA_COZINHA",
+        "taxaServico": conta.get("taxaServico", 0.0),
+        "tipoLancamento": tipo_lancamento,
     }
-    lancamento = {
-        "id": f"CX-{uuid.uuid4().hex[:6].upper()}",
-        "orderId": pedido_id,
-        "descricao": f"{tipo_lancamento} {pedido_id} — {payload.nome.strip()}",
-        "tipo": "ENTRADA",
-        "categoria": tipo_lancamento,
-        "valor": conta["sinal"],
-        "criadoEm": agora,
-    }
+    if email_cliente:
+        pedido["emailCliente"] = email_cliente
     PEDIDOS.append(pedido)
-    LIVRO_CAIXA.append(lancamento)
-    registrar_resultado(pedido_id, payload.nome.strip(), resultado, agora)
-    CAIXA["saldo"] = round(CAIXA["saldo"] + conta["sinal"], 2)
-    CAIXA["gavetaEm"] = ""
     atualizar_cliente_do_atendimento(payload)
-    pedir_estoque(pedido_id)
-    salvar()
-    salvar_recibo(pedido)
+    if espera_mp:
+        salvar()
+        return {"pedido": pedido_publico(request, pedido), "aguardandoPagamento": True, "caixa": CAIXA}
+    lancamento = efetivar_venda(pedido)
     publicado = pedido_publico(request, pedido)
     return {
         "pedido": publicado,
@@ -4740,6 +4822,740 @@ def criar_pedido(payload: NovoPedido, request: Request):
         "caixa": CAIXA,
         "envio": links_envio(publicado, publicado["link"]),
     }
+
+
+def efetivar_venda(pedido: dict) -> dict:
+    pedido_id = pedido["orderId"]
+    agora = agora_texto()
+    taxa_servico = float(pedido.get("taxaServico") or 0)
+    tipo_lancamento = pedido.get("tipoLancamento") or ("SINAL" if pedido.get("restante") else "VENDA")
+    descricao = f"{tipo_lancamento} {pedido_id} — {pedido['nome']}"
+    if taxa_servico > 0:
+        descricao += f" (Mercado Pago, taxa de serviço {dinheiro(taxa_servico)})"
+    liquido = round(float(pedido["sinal"]) - taxa_servico, 2)
+    lancamento = {
+        "id": f"CX-{uuid.uuid4().hex[:6].upper()}",
+        "orderId": pedido_id,
+        "descricao": descricao,
+        "tipo": "ENTRADA",
+        "categoria": tipo_lancamento,
+        "valor": liquido,
+        "criadoEm": agora,
+    }
+    LIVRO_CAIXA.append(lancamento)
+    registrar_resultado(pedido_id, pedido["nome"], float(pedido.get("resultado") or 0), agora)
+    CAIXA["saldo"] = round(CAIXA["saldo"] + liquido, 2)
+    CAIXA["gavetaEm"] = ""
+    pedido["cozinhaStatus"] = "NA_COZINHA"
+    pedir_estoque(pedido_id)
+    salvar()
+    salvar_recibo(pedido)
+    return lancamento
+
+
+ARQUIVO_MP = os.path.join(RAIZ, "dados", "mercadopago.json")
+MP_API = "https://api.mercadopago.com"
+MP_AUTORIZAR = "https://auth.mercadopago.com/authorization"
+CAMINHO_RETORNO_MP = "/api/mercadopago/retorno"
+ESTADOS_MP: dict[str, float] = {}
+STATUS_PIX = {
+    "pending": "Aguardando a cliente pagar.",
+    "in_process": "Em análise no Mercado Pago.",
+    "approved": "Pix recebido pelo Mercado Pago.",
+    "rejected": "O Mercado Pago recusou o Pix.",
+    "cancelled": "O Pix venceu ou foi cancelado sem pagamento.",
+    "refunded": "O Pix foi devolvido à cliente.",
+}
+
+
+def ler_mp() -> dict:
+    try:
+        with open(ARQUIVO_MP, encoding="utf-8") as arquivo:
+            dados = json.load(arquivo)
+    except (OSError, ValueError):
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+
+def gravar_mp(dados: dict) -> None:
+    os.makedirs(os.path.dirname(ARQUIVO_MP), exist_ok=True)
+    temporario = ARQUIVO_MP + ".tmp"
+    with open(temporario, "w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(temporario, 0o600)
+    except OSError:
+        pass
+    os.replace(temporario, ARQUIVO_MP)
+
+
+def chamar_mp(
+    metodo: str,
+    caminho: str,
+    token: str = "",
+    corpo: dict | None = None,
+    formulario: dict | None = None,
+    chave_unica: str = "",
+) -> tuple[int, dict]:
+    cabecalhos = {"Accept": "application/json", "User-Agent": "CaminhoDosDoces-PDV/1.0"}
+    dados = None
+    if token:
+        cabecalhos["Authorization"] = f"Bearer {token}"
+    if corpo is not None:
+        dados = json.dumps(corpo).encode("utf-8")
+        cabecalhos["Content-Type"] = "application/json"
+    elif formulario is not None:
+        dados = urlencode(formulario).encode("utf-8")
+        cabecalhos["Content-Type"] = "application/x-www-form-urlencoded"
+    if chave_unica:
+        cabecalhos["X-Idempotency-Key"] = chave_unica
+    pedido = urllib.request.Request(MP_API + caminho, data=dados, method=metodo, headers=cabecalhos)
+    try:
+        with urllib.request.urlopen(pedido, timeout=20) as resposta:
+            texto = resposta.read().decode("utf-8", "replace")
+            status = resposta.status
+    except HTTPError as erro:
+        texto = erro.read().decode("utf-8", "replace")
+        status = erro.code
+    except (URLError, TimeoutError, OSError):
+        raise HTTPException(status_code=502, detail="O Mercado Pago não respondeu. Confira a internet e tente de novo.")
+    try:
+        resposta_json = json.loads(texto) if texto.strip() else {}
+    except ValueError:
+        resposta_json = {"message": texto[:300]}
+    return status, resposta_json if isinstance(resposta_json, dict) else {"lista": resposta_json}
+
+
+def motivo_mp(corpo: dict) -> str:
+    causas = corpo.get("cause") or []
+    if isinstance(causas, list) and causas and isinstance(causas[0], dict) and causas[0].get("description"):
+        return str(causas[0]["description"])
+    return str(corpo.get("message") or corpo.get("error_description") or corpo.get("error") or "sem motivo informado")
+
+
+def conta_mp(token: str) -> dict:
+    status, corpo = chamar_mp("GET", "/users/me", token)
+    if status in (401, 403):
+        raise HTTPException(status_code=400, detail="O Mercado Pago não aceitou essa chave. Copie o Access Token de novo.")
+    if status != 200:
+        raise HTTPException(status_code=502, detail=f"O Mercado Pago respondeu: {motivo_mp(corpo)}")
+    return {
+        "userId": str(corpo.get("id") or ""),
+        "conta": str(corpo.get("nickname") or corpo.get("email") or ""),
+    }
+
+
+def guardar_token_oauth(dados: dict, corpo: dict) -> None:
+    dados["accessToken"] = corpo["access_token"]
+    if corpo.get("refresh_token"):
+        dados["refreshToken"] = corpo["refresh_token"]
+    validade = int(corpo.get("expires_in") or 0)
+    dados["expiraEm"] = time.time() + validade if validade else 0
+
+
+def token_mp() -> str:
+    dados = ler_mp()
+    if not dados.get("accessToken"):
+        raise HTTPException(status_code=400, detail="O Mercado Pago não está conectado. Conecte no Administrativo, aba Mercado Pago.")
+    vence_logo = dados.get("expiraEm") and dados["expiraEm"] - time.time() < 86400
+    if dados.get("modo") == "OAUTH" and vence_logo and dados.get("refreshToken"):
+        status, corpo = chamar_mp("POST", "/oauth/token", formulario={
+            "client_id": dados.get("clientId", ""),
+            "client_secret": dados.get("clientSecret", ""),
+            "grant_type": "refresh_token",
+            "refresh_token": dados["refreshToken"],
+        })
+        if status != 200 or not corpo.get("access_token"):
+            raise HTTPException(status_code=400, detail="A conexão com o Mercado Pago venceu. Conecte a conta de novo no Administrativo.")
+        guardar_token_oauth(dados, corpo)
+        gravar_mp(dados)
+    return dados["accessToken"]
+
+
+def mp_publico() -> dict:
+    dados = ler_mp()
+    token = dados.get("accessToken") or ""
+    expira = dados.get("expiraEm") or 0
+    return {
+        "conectado": bool(token),
+        "modo": dados.get("modo") or "",
+        "conta": dados.get("conta") or "",
+        "final": token[-4:] if token else "",
+        "teste": token.startswith("TEST-"),
+        "conectadoEm": dados.get("conectadoEm") or "",
+        "venceEm": datetime.fromtimestamp(expira).strftime("%d/%m/%Y") if expira else "",
+        "clientId": dados.get("clientId") or "",
+        "temSecret": bool(dados.get("clientSecret")),
+        "retorno": dados.get("redirectUri") or "",
+    }
+
+
+class ChaveMp(BaseModel):
+    accessToken: str
+
+
+class AplicativoMp(BaseModel):
+    clientId: str
+    clientSecret: str = ""
+    redirectUri: str
+
+
+class TaxaExtraMp(BaseModel):
+    nome: str
+    tipo: str = "PERCENTUAL"
+    valor: float = 0.0
+
+
+class TaxasMp(BaseModel):
+    taxas: dict[str, float]
+    extras: list[TaxaExtraMp] = []
+
+
+@app.get("/api/mercadopago")
+def ver_mercadopago(request: Request):
+    exigir_admin(request)
+    return mp_publico()
+
+
+@app.post("/api/mercadopago/chave")
+def conectar_por_chave(payload: ChaveMp, request: Request):
+    exigir_admin(request)
+    token = payload.accessToken.strip()
+    if not re.fullmatch(r"(APP_USR|TEST)-[A-Za-z0-9-]{20,}", token):
+        raise HTTPException(status_code=400, detail="Essa chave não parece um Access Token. Ele começa com APP_USR- (ou TEST- para teste).")
+    conta = conta_mp(token)
+    dados = ler_mp()
+    for campo in ("refreshToken", "expiraEm"):
+        dados.pop(campo, None)
+    dados.update(conta)
+    dados.update({"modo": "MANUAL", "accessToken": token, "conectadoEm": datetime.now().strftime("%d/%m/%Y %H:%M")})
+    gravar_mp(dados)
+    return mp_publico()
+
+
+@app.post("/api/mercadopago/aplicativo")
+def guardar_aplicativo_mp(payload: AplicativoMp, request: Request):
+    exigir_admin(request)
+    dados = ler_mp()
+    client_id = payload.clientId.strip()
+    retorno = payload.redirectUri.strip()
+    if not re.fullmatch(r"\d{6,}", client_id):
+        raise HTTPException(status_code=400, detail="O Client ID do Mercado Pago é só número.")
+    if not re.fullmatch(r"https?://[^\s/]+" + re.escape(CAMINHO_RETORNO_MP), retorno):
+        raise HTTPException(status_code=400, detail=f"O endereço de retorno precisa terminar em {CAMINHO_RETORNO_MP}.")
+    segredo = payload.clientSecret.strip() or dados.get("clientSecret", "")
+    if not segredo:
+        raise HTTPException(status_code=400, detail="Falta o Client Secret.")
+    dados.update({"clientId": client_id, "clientSecret": segredo, "redirectUri": retorno})
+    gravar_mp(dados)
+    return mp_publico()
+
+
+@app.post("/api/mercadopago/conectar")
+def iniciar_conexao_mp(request: Request):
+    exigir_admin(request)
+    dados = ler_mp()
+    if not (dados.get("clientId") and dados.get("clientSecret") and dados.get("redirectUri")):
+        raise HTTPException(status_code=400, detail="Guarde primeiro o Client ID, o Client Secret e o endereço de retorno.")
+    agora = time.time()
+    for estado, validade in list(ESTADOS_MP.items()):
+        if validade < agora:
+            ESTADOS_MP.pop(estado, None)
+    estado = secrets.token_urlsafe(24)
+    ESTADOS_MP[estado] = agora + 600
+    url = MP_AUTORIZAR + "?" + urlencode({
+        "client_id": dados["clientId"],
+        "response_type": "code",
+        "platform_id": "mp",
+        "state": estado,
+        "redirect_uri": dados["redirectUri"],
+    })
+    return {"url": url}
+
+
+def pagina_retorno_mp(titulo: str, texto: str, status: int = 200) -> HTMLResponse:
+    return HTMLResponse(
+        f"""<!doctype html><html lang="pt-BR"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(titulo)}</title>
+<body style="font-family:system-ui,sans-serif;background:#FFF7F9;color:#3d2418;padding:32px">
+<h1 style="font-size:20px">{escape(titulo)}</h1><p>{escape(texto)}</p>
+<p><a href="/">Voltar ao PDV</a></p></body></html>""",
+        status_code=status,
+    )
+
+
+@app.get(CAMINHO_RETORNO_MP)
+def retorno_mercadopago(code: str = "", state: str = "", error: str = ""):
+    validade = ESTADOS_MP.pop(state, 0) if state else 0
+    if not validade or validade < time.time():
+        return pagina_retorno_mp("Conexão não aceita", "O pedido de conexão venceu ou não saiu deste PDV. Clique de novo em Conectar minha conta Mercado Pago.", 400)
+    if error or not code:
+        return pagina_retorno_mp("Conexão cancelada", "O Mercado Pago não autorizou a conexão. Nada foi mudado.", 400)
+    dados = ler_mp()
+    try:
+        status, corpo = chamar_mp("POST", "/oauth/token", formulario={
+            "client_id": dados.get("clientId", ""),
+            "client_secret": dados.get("clientSecret", ""),
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": dados.get("redirectUri", ""),
+        })
+        if status != 200 or not corpo.get("access_token"):
+            return pagina_retorno_mp("Conexão não concluída", f"O Mercado Pago respondeu: {motivo_mp(corpo)}", 400)
+        conta = conta_mp(corpo["access_token"])
+    except HTTPException as erro:
+        return pagina_retorno_mp("Conexão não concluída", str(erro.detail), 400)
+    guardar_token_oauth(dados, corpo)
+    dados.update(conta)
+    dados.update({"modo": "OAUTH", "conectadoEm": datetime.now().strftime("%d/%m/%Y %H:%M")})
+    gravar_mp(dados)
+    conta_nome = f"A conta {dados['conta']}" if dados.get("conta") else "A conta"
+    return pagina_retorno_mp("Mercado Pago conectado", f"{conta_nome} já recebe o Pix do PDV.")
+
+
+@app.post("/api/mercadopago/desconectar")
+def desconectar_mp(request: Request):
+    exigir_admin(request)
+    dados = ler_mp()
+    for campo in ("accessToken", "refreshToken", "expiraEm", "modo", "conta", "userId", "conectadoEm"):
+        dados.pop(campo, None)
+    gravar_mp(dados)
+    return mp_publico()
+
+
+TAXAS_MP_PADRAO = {
+    "pix": 0.99,
+    "debito": 3.99,
+    "credito1": 4.98,
+    "credito2": 7.51,
+    "credito3": 9.60,
+    "credito4": 11.67,
+    "credito5": 13.64,
+}
+TRAVA_MP = threading.Lock()
+
+
+def taxas_mp() -> tuple[dict, list]:
+    dados = ler_mp()
+    guardadas = dados.get("taxas") or {}
+    taxas = {chave: float(guardadas.get(chave, padrao)) for chave, padrao in TAXAS_MP_PADRAO.items()}
+    return taxas, list(dados.get("taxasExtras") or [])
+
+
+@app.get("/api/mercadopago/taxas")
+def ver_taxas_mp():
+    taxas, extras = taxas_mp()
+    return {"conectado": bool(ler_mp().get("accessToken")), "taxas": taxas, "extras": extras, "padrao": TAXAS_MP_PADRAO}
+
+
+@app.put("/api/mercadopago/taxas")
+def guardar_taxas_mp(payload: TaxasMp, request: Request):
+    exigir_admin(request)
+    taxas = {}
+    for chave in TAXAS_MP_PADRAO:
+        valor = round(float(payload.taxas.get(chave, TAXAS_MP_PADRAO[chave])), 2)
+        if not 0 <= valor < 50:
+            raise HTTPException(status_code=400, detail="Cada taxa precisa ficar entre 0% e 50%.")
+        taxas[chave] = valor
+    extras = []
+    for extra in payload.extras[:10]:
+        nome = extra.nome.strip()[:40]
+        tipo = "FIXO" if extra.tipo == "FIXO" else "PERCENTUAL"
+        valor = round(float(extra.valor), 2)
+        if not nome:
+            raise HTTPException(status_code=400, detail="Dê um nome para a taxa extra.")
+        if valor < 0 or (tipo == "PERCENTUAL" and valor >= 50) or (tipo == "FIXO" and valor > 100):
+            raise HTTPException(status_code=400, detail=f"O valor da taxa {nome} não está certo.")
+        extras.append({"nome": nome, "tipo": tipo, "valor": valor})
+    dados = ler_mp()
+    dados["taxas"] = taxas
+    dados["taxasExtras"] = extras
+    gravar_mp(dados)
+    return ver_taxas_mp()
+
+
+def tipo_parte_mp(forma: str) -> str:
+    texto = (forma or "").upper()
+    if texto.startswith("PIX"):
+        return "PIX"
+    if texto.startswith(("DÉBITO", "DEBITO")):
+        return "DEBITO"
+    if texto.startswith(("CRÉDITO", "CREDITO")):
+        return "CREDITO"
+    return ""
+
+
+def aplicar_taxa_mp(conta: dict, parcelas: int) -> None:
+    taxas, extras = taxas_mp()
+    extra_pct = sum(float(e["valor"]) for e in extras if e.get("tipo") == "PERCENTUAL")
+    fixo = sum(float(e["valor"]) for e in extras if e.get("tipo") == "FIXO")
+    total_taxa = 0.0
+    for parte in conta["partes"]:
+        tipo = tipo_parte_mp(parte["forma"])
+        if not tipo:
+            continue
+        chave = "pix" if tipo == "PIX" else "debito" if tipo == "DEBITO" else f"credito{max(1, min(parcelas, 5))}"
+        fracao = (taxas.get(chave, 0.0) + extra_pct) / 100
+        bruto = round((float(parte["valor"]) + fixo) / (1 - fracao), 2)
+        fixo = 0.0
+        taxa = round(bruto - float(parte["valor"]), 2)
+        parte.update({
+            "valor": bruto,
+            "taxaServico": taxa,
+            "mp": "PIX" if tipo == "PIX" else "LINK",
+            "tipoMp": tipo,
+            "parcelas": max(1, min(parcelas, 5)) if tipo == "CREDITO" else 1,
+            "status": "AGUARDANDO",
+        })
+        total_taxa += taxa
+    total_taxa = round(total_taxa, 2)
+    conta["taxaServico"] = total_taxa
+    conta["total"] = round(conta["total"] + total_taxa, 2)
+    conta["sinal"] = round(conta["sinal"] + total_taxa, 2)
+
+
+def referencia_parte(order_id: str, indice: int) -> str:
+    return f"{order_id}-P{indice + 1}"
+
+
+def criar_pix_parte(pedido: dict, indice: int, parte: dict, token: str) -> dict:
+    nome = (pedido.get("nome") or "Cliente").split()
+    pagador = {
+        "email": pedido.get("emailCliente") or "",
+        "first_name": nome[0],
+        "last_name": " ".join(nome[1:]) or nome[0],
+    }
+    cpf = re.sub(r"\D", "", pedido.get("cpf") or "")
+    if len(cpf) == 11:
+        pagador["identification"] = {"type": "CPF", "number": cpf}
+    validade = (datetime.now().astimezone() + timedelta(minutes=30)).isoformat(timespec="milliseconds")
+    status, corpo = chamar_mp(
+        "POST",
+        "/v1/payments",
+        token,
+        corpo={
+            "transaction_amount": float(parte["valor"]),
+            "description": f"Caminho dos Doces {pedido['orderId']}",
+            "payment_method_id": "pix",
+            "external_reference": referencia_parte(pedido["orderId"], indice),
+            "date_of_expiration": validade,
+            "payer": pagador,
+        },
+        chave_unica=uuid.uuid4().hex,
+    )
+    if status not in (200, 201) or not corpo.get("id"):
+        raise HTTPException(status_code=400, detail=f"O Mercado Pago recusou o Pix: {motivo_mp(corpo)}")
+    parte["pagamentoId"] = str(corpo["id"])
+    parte["expiraEm"] = corpo.get("date_of_expiration") or validade
+    parte["statusMp"] = corpo.get("status") or "pending"
+    return corpo
+
+
+def criar_link_parte(pedido: dict, indice: int, parte: dict, token: str) -> None:
+    if parte["tipoMp"] == "DEBITO":
+        excluidos = ["credit_card", "ticket", "bank_transfer", "atm"]
+        parcelas = 1
+    else:
+        excluidos = ["debit_card", "ticket", "bank_transfer", "atm"]
+        parcelas = int(parte.get("parcelas") or 1)
+    vence = datetime.now().astimezone() + timedelta(hours=24)
+    nome = (pedido.get("nome") or "Cliente").split()
+    status, corpo = chamar_mp(
+        "POST",
+        "/checkout/preferences",
+        token,
+        corpo={
+            "items": [{
+                "title": f"Caminho dos Doces {pedido['orderId']}",
+                "quantity": 1,
+                "currency_id": "BRL",
+                "unit_price": float(parte["valor"]),
+            }],
+            "payer": {"name": nome[0], "surname": " ".join(nome[1:])},
+            "external_reference": referencia_parte(pedido["orderId"], indice),
+            "payment_methods": {
+                "excluded_payment_types": [{"id": tipo} for tipo in excluidos],
+                "installments": parcelas,
+                "default_installments": parcelas,
+            },
+            "expires": True,
+            "expiration_date_to": vence.isoformat(timespec="milliseconds"),
+        },
+        chave_unica=uuid.uuid4().hex,
+    )
+    if status not in (200, 201) or not corpo.get("init_point"):
+        raise HTTPException(status_code=400, detail=f"O Mercado Pago não criou o link: {motivo_mp(corpo)}")
+    parte["preferenciaId"] = str(corpo.get("id") or "")
+    parte["link"] = corpo["init_point"]
+    parte["expiraEm"] = vence.isoformat(timespec="minutes")
+
+
+def conferir_parte_mp(pedido: dict, indice: int, parte: dict, token: str) -> dict:
+    referencia = referencia_parte(pedido["orderId"], indice)
+    if parte["mp"] == "PIX":
+        if not parte.get("pagamentoId"):
+            return {}
+        status, corpo = chamar_mp("GET", f"/v1/payments/{parte['pagamentoId']}", token)
+        if status != 200 or str(corpo.get("external_reference") or "") != referencia:
+            return {}
+        parte["statusMp"] = corpo.get("status") or parte.get("statusMp")
+        if parte["statusMp"] == "approved":
+            parte["status"] = "PAGO"
+        elif parte["statusMp"] in ("cancelled", "rejected"):
+            parte.pop("pagamentoId", None)
+        return corpo
+    status, corpo = chamar_mp(
+        "GET",
+        "/v1/payments/search?" + urlencode({"external_reference": referencia, "sort": "date_created", "criteria": "desc"}),
+        token,
+    )
+    resultados = corpo.get("results") if status == 200 else []
+    for pagamento in resultados or []:
+        if str(pagamento.get("external_reference") or "") != referencia:
+            continue
+        if pagamento.get("status") == "approved":
+            parte["status"] = "PAGO"
+            parte["pagamentoId"] = str(pagamento.get("id") or "")
+            parte["statusMp"] = "approved"
+            break
+        parte["statusMp"] = pagamento.get("status") or parte.get("statusMp")
+    return {}
+
+
+def texto_parte_mp(parte: dict) -> str:
+    if parte.get("status") == "PAGO":
+        return "Pago no Mercado Pago."
+    if parte["mp"] == "PIX" and not parte.get("pagamentoId"):
+        return "Pix vencido ou recusado. Gere outro."
+    if parte["mp"] == "LINK" and parte.get("statusMp") == "rejected":
+        return "O cartão foi recusado. A cliente pode tentar de novo pelo mesmo link."
+    return STATUS_PIX.get(parte.get("statusMp") or "pending", "Aguardando a cliente pagar.")
+
+
+def estado_cobranca(request: Request, pedido: dict, dados_pix: dict[int, dict], efetivou: bool) -> dict:
+    partes = []
+    for indice, parte in enumerate(pedido.get("partes") or []):
+        if not parte.get("mp"):
+            continue
+        pago = parte.get("status") == "PAGO"
+        qr = {} if pago else ((dados_pix.get(indice) or {}).get("point_of_interaction") or {}).get("transaction_data") or {}
+        partes.append({
+            "indice": indice,
+            "forma": parte["forma"],
+            "tipo": parte["mp"],
+            "valor": parte["valor"],
+            "taxaServico": parte.get("taxaServico", 0.0),
+            "pago": pago,
+            "statusTexto": texto_parte_mp(parte),
+            "qrCode": qr.get("qr_code") or "",
+            "qrBase64": qr.get("qr_code_base64") or "",
+            "link": "" if pago else parte.get("link") or "",
+        })
+    return {
+        "orderId": pedido["orderId"],
+        "aguardando": pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO",
+        "efetivouAgora": efetivou,
+        "partes": partes,
+        "pedido": pedido_publico(request, pedido),
+    }
+
+
+def pedido_mp(order_id: str) -> dict:
+    pedido = next((p for p in PEDIDOS if p["orderId"] == order_id), None)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Venda não encontrada.")
+    if pedido.get("cozinhaStatus") == "CANCELADO":
+        raise HTTPException(status_code=400, detail="Esta venda foi cancelada.")
+    if not any(parte.get("mp") for parte in pedido.get("partes") or []):
+        raise HTTPException(status_code=400, detail="Esta venda não passa pelo Mercado Pago.")
+    return pedido
+
+
+def link_vencido(parte: dict) -> bool:
+    try:
+        return datetime.fromisoformat(parte.get("expiraEm") or "") <= datetime.now().astimezone()
+    except ValueError:
+        return False
+
+
+def conferir_e_efetivar(pedido: dict, token: str) -> tuple[dict[int, dict], bool]:
+    antes = json.dumps(pedido["partes"], sort_keys=True)
+    dados_pix = {}
+    for indice, parte in enumerate(pedido["partes"]):
+        if parte.get("mp") and parte.get("status") != "PAGO":
+            dados_pix[indice] = conferir_parte_mp(pedido, indice, parte, token)
+            if parte["mp"] == "LINK" and parte.get("status") != "PAGO" and parte.get("link") and link_vencido(parte):
+                parte.pop("link", None)
+    with TRAVA_MP:
+        pronto = all(parte.get("status") == "PAGO" for parte in pedido["partes"] if parte.get("mp"))
+        if pronto and pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO":
+            pedido["pagoMercadoPagoEm"] = agora_texto()
+            efetivar_venda(pedido)
+            return dados_pix, True
+    if json.dumps(pedido["partes"], sort_keys=True) != antes:
+        salvar()
+    return dados_pix, False
+
+
+@app.post("/api/pedidos/{order_id}/mercadopago")
+def gerar_cobranca_mp(order_id: str, request: Request):
+    pedido = pedido_mp(order_id)
+    token = token_mp()
+    dados_pix, efetivou = conferir_e_efetivar(pedido, token)
+    if pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO":
+        for indice, parte in enumerate(pedido["partes"]):
+            if not parte.get("mp") or parte.get("status") == "PAGO":
+                continue
+            if parte["mp"] == "PIX" and not parte.get("pagamentoId"):
+                dados_pix[indice] = criar_pix_parte(pedido, indice, parte, token)
+            elif parte["mp"] == "LINK" and not parte.get("link"):
+                criar_link_parte(pedido, indice, parte, token)
+        salvar()
+    return estado_cobranca(request, pedido, dados_pix, efetivou)
+
+
+@app.get("/api/pedidos/{order_id}/mercadopago")
+def conferir_cobranca_mp(order_id: str, request: Request):
+    pedido = pedido_mp(order_id)
+    dados_pix, efetivou = conferir_e_efetivar(pedido, token_mp())
+    return estado_cobranca(request, pedido, dados_pix, efetivou)
+
+
+
+
+class ItemPreco(BaseModel):
+    id: str
+    custo: float = 0.0
+    precoIfood: float = 0.0
+    precoNoventa: float = 0.0
+
+
+class Precificacao(BaseModel):
+    margem: float = 30.0
+    custoExtra: float = 0.0
+    modo: str = "TOTAL"
+    imposto: float = 0.0
+    fixasMes: float = 0.0
+    faturamentoMes: float = 0.0
+    metaCmv: float = 35.0
+    itens: list[ItemPreco] = []
+
+
+def despesas_fixas_auto() -> dict:
+    plano = ADMIN.get("prolabore") or {}
+    casa = calcular_casa(ADMIN.get("casa") or {}) if ADMIN.get("casa") else {"lojaTotal": 0.0}
+    ocupacao = float(casa.get("lojaTotal") or 0) or float(plano.get("aluguel") or 0) + float(plano.get("contasLoja") or 0)
+    partes = {
+        "ocupacao": round(ocupacao, 2),
+        "prolabore": round(float(plano.get("prolaboreFixo") or 0), 2),
+        "contador": round(float(plano.get("contador") or 0), 2),
+        "outras": round(float(plano.get("outrasLoja") or 0), 2),
+        "ifood": round(conta_ifood(ADMIN)["mensalidade"], 2),
+        "noventa": round(conta_noventa(ADMIN)["mensalidade"], 2),
+    }
+    partes["total"] = round(sum(partes.values()), 2)
+    return partes
+
+
+def custo_das_fornadas() -> dict[str, dict]:
+    custos: dict[str, list[float]] = {}
+    for fornada in reversed(COZINHA):
+        quantidade = int(fornada.get("quantidade") or 0)
+        custo = float(fornada.get("custo") or 0)
+        if quantidade < 1 or custo <= 0:
+            continue
+        chave = fornada.get("doceId") or ""
+        if not chave:
+            item = next((c for c in CARDAPIO if c["nome"] == fornada.get("doce")), None)
+            chave = item["id"] if item else ""
+        if chave and len(custos.setdefault(chave, [])) < 5:
+            custos[chave].append(custo / quantidade)
+    return {chave: {"custo": round(sum(lista) / len(lista), 2), "fornadas": len(lista)} for chave, lista in custos.items()}
+
+
+def precificacao_publica() -> dict:
+    conf = ADMIN.get("precificacao") or {}
+    guardados = conf.get("itens") or {}
+    fornadas = custo_das_fornadas()
+    itens = []
+    for item in CARDAPIO:
+        salvo = guardados.get(item["id"]) or {}
+        auto = fornadas.get(item["id"]) or {}
+        itens.append({
+            "id": item["id"],
+            "nome": item["nome"],
+            "ativo": item.get("ativo", True),
+            "preco": float(item.get("preco") or 0),
+            "custo": float(salvo.get("custo") or 0),
+            "custoFornada": auto.get("custo", 0.0),
+            "fornadas": auto.get("fornadas", 0),
+            "precoIfood": float(salvo.get("precoIfood") or 0),
+            "precoNoventa": float(salvo.get("precoNoventa") or 0),
+        })
+    ifood = conta_ifood(ADMIN)
+    noventa = conta_noventa(ADMIN)
+    taxas, _extras = taxas_mp()
+    return {
+        "margem": float(conf.get("margem", 30.0)),
+        "custoExtra": float(conf.get("custoExtra") or 0),
+        "modo": conf.get("modo") or "TOTAL",
+        "imposto": float(conf.get("imposto") or 0),
+        "fixasMes": float(conf.get("fixasMes") or 0),
+        "faturamentoMes": float(conf.get("faturamentoMes") or 0),
+        "metaCmv": float(conf.get("metaCmv", 35.0)),
+        "fixasAuto": despesas_fixas_auto(),
+        "metaMes": float(ADMIN.get("metaMes") or 0),
+        "itens": itens,
+        "ifood": {"taxa": ifood["taxa"], "plano": ifood["plano"], "mensalidade": ifood["mensalidade"], "isencao": ifood["isencao"]},
+        "noventa": {"taxa": noventa["taxa"], "plano": noventa["plano"], "mensalidade": noventa["mensalidade"]},
+        "mercadoPago": {"pix": taxas["pix"], "credito": taxas["credito1"], "debito": taxas["debito"]},
+    }
+
+
+@app.get("/api/precificacao")
+def ver_precificacao(request: Request):
+    exigir_admin(request)
+    return precificacao_publica()
+
+
+@app.put("/api/precificacao")
+def guardar_precificacao(payload: Precificacao, request: Request):
+    exigir_admin(request)
+    if not 0 <= payload.margem < 90:
+        raise HTTPException(status_code=400, detail="A margem precisa ficar entre 0% e 90%.")
+    if payload.custoExtra < 0:
+        raise HTTPException(status_code=400, detail="O custo extra não pode ser negativo.")
+    if not 0 <= payload.imposto < 50:
+        raise HTTPException(status_code=400, detail="O imposto precisa ficar entre 0% e 50%.")
+    if payload.fixasMes < 0 or payload.faturamentoMes < 0:
+        raise HTTPException(status_code=400, detail="Despesas e faturamento não podem ser negativos.")
+    if not 1 <= payload.metaCmv <= 90:
+        raise HTTPException(status_code=400, detail="A meta de CMV precisa ficar entre 1% e 90%.")
+    ids = {item["id"] for item in CARDAPIO}
+    itens = {}
+    for item in payload.itens:
+        if item.id not in ids:
+            continue
+        if min(item.custo, item.precoIfood, item.precoNoventa) < 0:
+            raise HTTPException(status_code=400, detail="Custo e preço não podem ser negativos.")
+        itens[item.id] = {
+            "custo": round(item.custo, 2),
+            "precoIfood": round(item.precoIfood, 2),
+            "precoNoventa": round(item.precoNoventa, 2),
+        }
+    ADMIN["precificacao"] = {
+        "margem": round(payload.margem, 2),
+        "custoExtra": round(payload.custoExtra, 2),
+        "modo": "PARCIAL" if payload.modo == "PARCIAL" else "TOTAL",
+        "imposto": round(payload.imposto, 2),
+        "fixasMes": round(payload.fixasMes, 2),
+        "faturamentoMes": round(payload.faturamentoMes, 2),
+        "metaCmv": round(payload.metaCmv, 2),
+        "itens": itens,
+    }
+    salvar()
+    return precificacao_publica()
 
 
 if garantir_senha_admin() or garantir_conferencia_antiga():
