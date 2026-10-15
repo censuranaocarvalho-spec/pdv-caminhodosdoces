@@ -482,12 +482,13 @@
     .selo.fiscal { background: var(--chocolate); color: #fff; }
     .selo.novo { background: #f6c445; color: var(--chocolate); }
     #aviso-clientes {
-      position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 60;
+      position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 45;
       width: min(520px, calc(100% - 24px)); background: #fff; border: 2px solid #f6c445;
       border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 14px 16px;
     }
     #aviso-clientes p { margin: 0 0 10px; }
-    #aviso-clientes .botoes-ficha { justify-content: flex-end; }
+    #aviso-clientes .botoes-ficha { justify-content: flex-end; flex-wrap: nowrap; }
+    #aviso-clientes .acao { width: auto; margin: 0; padding: 8px 16px; }
     .grade-ficha { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 14px; margin-top: 8px; }
     .botoes-ficha { display: flex; gap: 8px; flex-wrap: wrap; }
     .botoes-ficha .mini { margin-top: 10px; }
@@ -803,11 +804,12 @@
   <div id="canal-fundo">
     <div class="card">
       <h2 id="canal-titulo">Antes de abrir</h2>
-      <p class="nota">Abrir o aplicativo não lança venda e não mexe no caixa. Se hoje não vendeu, o valor do dia pode ser R$ 0,00.</p>
+      <p class="nota">Abrir o aplicativo não lança venda e não mexe no caixa. Se hoje não vendeu, o valor do dia pode ser R$ 0,00. Para conferir preços, taxas e saldo, use “Só abrir para ver os valores”.</p>
       <label class="check-robo"><input type="checkbox" id="ok-loja-aberta"> A loja está aberta</label>
       <label class="check-robo"><input type="checkbox" id="ok-precos"> Os preços da loja, do iFood e do 99Food estão certos</label>
       <label class="check-robo"><input type="checkbox" id="ok-banco-dia"> Já conferi o saldo e as contas do banco</label>
       <button class="acao" id="canal-confirmar" type="button" disabled>Está conferido, pode abrir</button>
+      <button class="acao claro" id="canal-olhar" type="button">Só abrir para ver os valores</button>
       <button class="acao claro" id="canal-cancelar" type="button">Agora não</button>
     </div>
   </div>
@@ -1394,12 +1396,14 @@
           <div class="card">
             <h2>iFood</h2>
             <button class="acao" id="ifood-abrir-app" type="button">Abrir o aplicativo do iFood</button>
-            <p class="nota">O botão pede a conferência e depois abre o aplicativo neste computador. O PDV não entra na conta. Se não vendeu, use Não vendi hoje. Se vendeu, digite o total e aperte Enter. Salve na aba Banco.</p>
+            <p class="nota">O botão pede a conferência e depois abre o aplicativo neste computador. O PDV não entra na conta. Se não vendeu, use Não vendi hoje. Se vendeu, digite o total e aperte Enter, ou, com a API do iFood ligada, aperte Buscar as vendas de hoje no iFood. Salve na aba Banco.</p>
             <div class="linha">
               <div>
                 <label>Valor de vendas total do dia no iFood</label>
                 <input id="ifood-saldo" inputmode="numeric" value="R$ 0,00">
                 <button class="acao claro" id="ifood-zero" type="button">Não vendi hoje</button>
+                <button class="acao claro" id="ifood-api-buscar" type="button" hidden>Buscar as vendas de hoje no iFood</button>
+                <p class="nota" id="ifood-api-busca"></p>
               </div>
               <div>
                 <label>Plano</label>
@@ -1462,6 +1466,20 @@
             <div class="numeros" id="ifood-numeros"></div>
             <div id="ifood-fatia" style="margin-top:12px"></div>
             <p class="nota" id="ifood-dica"></p>
+          </div>
+          <div class="card">
+            <h2>API do iFood</h2>
+            <p class="nota" id="ifood-api-estado">Conferindo a ligação...</p>
+            <p class="nota">Com a API ligada, o PDV busca sozinho as vendas do dia no iFood e preenche o valor acima. Precisa do aplicativo criado no Portal do Desenvolvedor do iFood, no CNPJ da loja, com a API Financeira liberada. O Client Secret fica guardado só neste computador e não aparece mais na tela.</p>
+            <label for="ifood-api-client-id">Client ID</label>
+            <input id="ifood-api-client-id" autocomplete="off" spellcheck="false">
+            <label for="ifood-api-client-secret">Client Secret</label>
+            <input id="ifood-api-client-secret" type="password" autocomplete="off" spellcheck="false">
+            <label for="ifood-api-merchant">Merchant ID (código da loja no iFood; em branco, o PDV acha sozinho)</label>
+            <input id="ifood-api-merchant" autocomplete="off" spellcheck="false">
+            <button class="acao" id="ifood-api-ligar" type="button">Ligar a API do iFood</button>
+            <button class="acao claro" id="ifood-api-desligar" type="button" hidden>Desligar a API do iFood</button>
+            <div class="aviso" id="ifood-api-aviso"></div>
           </div>
         </div>
         <div class="aba-admin" id="aba-noventa">
@@ -1655,6 +1673,10 @@
             </div>
             <p class="nota so-total" id="preco-fixas-nota"></p>
             <p class="nota" id="preco-canais"></p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="acao claro" id="preco-ver-ifood" type="button">Abrir o iFood para ver preços e taxas</button>
+              <button class="acao claro" id="preco-ver-noventa" type="button">Abrir o 99Food para ver preços e taxas</button>
+            </div>
             <div id="preco-resumo"></div>
             <div style="overflow-x:auto">
               <table id="preco-tabela">
@@ -2084,11 +2106,11 @@
           <li><strong>Entrar.</strong> Digite o e-mail e a senha da loja. Marque “Lembrar” para não digitar todo dia.</li>
           <li><strong>Administrativo.</strong> Entre com a senha do Administrativo e troque a senha padrão por uma só sua.</li>
           <li><strong>WhatsApp.</strong> Abra o balão verde Zap. Na primeira vez, leia o QR Code com o celular da loja. Depois aperte “Salvar contatos na agenda”.</li>
-          <li><strong>iFood e 99Food.</strong> Abra o balão de cada um e entre com o login da loja. A sessão fica salva.</li>
+          <li><strong>iFood e 99Food.</strong> Abra o balão de cada um, aperte “Só abrir para ver os valores” e entre com o login da loja. A sessão fica salva.</li>
           <li><strong>Cardápio.</strong> Confira nomes, preços e fotos dos doces.</li>
           <li><strong>Mercado Pago.</strong> Administrativo, aba Mercado Pago. Cole o Access Token e aperte “Conectar com a chave”. TEST- é só para treinar; APP_USR- é para valer. O balão azul MP mostra se está conectado.</li>
           <li><strong>Taxas do Mercado Pago.</strong> Na mesma aba, confira as taxas de Pix, débito e crédito com o que aparece no aplicativo do Mercado Pago. Aperte “Guardar as taxas”.</li>
-          <li><strong>Precificação.</strong> Preencha Pró-labore e Casa, escolha Total ou Parcial na aba Precificação e confira se algum doce dá prejuízo.</li>
+          <li><strong>Precificação.</strong> Preencha Pró-labore e Casa. Na aba Precificação, abra o iFood e o 99Food pelos botões e copie os preços de verdade. Escolha Total ou Parcial e confira se algum doce dá prejuízo.</li>
           <li><strong>Venda de teste.</strong> Faça a venda de teste do cartão abaixo antes de atender a primeira cliente.</li>
         </ol>
       </div>
@@ -2105,6 +2127,19 @@
           <li><strong>Confirmar.</strong> Com a cobrança aberta, o PDV percebe o pagamento em poucos segundos; fechada, em até meio minuto. O cupom abre, a venda vai para a cozinha e o caixa recebe o valor sem a taxa.</li>
           <li><strong>Cartão.</strong> Repita com Crédito ou Débito. O PDV gera o link; mande pelo WhatsApp e pague com cartão.</li>
           <li><strong>Desfazer.</strong> No aplicativo do Mercado Pago, devolva o dinheiro do teste. Depois cancele a venda no PDV com o motivo “venda de teste”. O PDV não devolve dinheiro sozinho.</li>
+        </ol>
+      </div>
+      <div class="card" id="info-ifood-api">
+        <h2>Tutorial da API do iFood</h2>
+        <p class="nota">A API do iFood é de graça, mas o iFood libera só para aplicativo cadastrado no CNPJ da loja e aprovado por eles. Isso pode levar dias. Enquanto não liberar, o valor do dia continua sendo digitado. O 99Food não tem API aberta para loja; o valor dele continua digitado.</p>
+        <ol class="tutorial-passos">
+          <li><strong>Cadastro.</strong> Entre no Portal do Desenvolvedor do iFood com o CNPJ da loja e crie um aplicativo do tipo centralizado.</li>
+          <li><strong>Liberação.</strong> Abra um chamado no portal pedindo a API Financeira (vendas) e a API de Lojas para a Caminho dos Doces. O iFood faz a homologação e avisa.</li>
+          <li><strong>Autorizar a loja.</strong> No Portal do Parceiro, autorize o aplicativo para a loja. A permissão leva até 10 minutos para valer.</li>
+          <li><strong>Copiar a chave.</strong> No Portal do Desenvolvedor, copie o Client ID e o Client Secret do aplicativo.</li>
+          <li><strong>Ligar no PDV.</strong> Administrativo, aba iFood, cartão API do iFood. Cole o Client ID e o Client Secret e aperte “Ligar a API do iFood”. O Merchant ID pode ficar em branco: o PDV acha a loja sozinho.</li>
+          <li><strong>No fechamento.</strong> Na aba iFood, aperte “Buscar as vendas de hoje no iFood”. O PDV preenche o valor de vendas do dia, sem os cancelados, e mostra quanto o iFood calcula para a loja. Confira e salve na aba Banco.</li>
+          <li><strong>Desligar.</strong> “Desligar a API do iFood” apaga a chave deste computador.</li>
         </ol>
       </div>
       <div class="card" id="info-dia">
@@ -2158,6 +2193,7 @@
         <h2>Regras da precificação</h2>
         <ul>
           <li>Onde fica: Administrativo, aba Precificação. Mostra doce por doce se a loja, o iFood ou o 99Food estão dando lucro, margem baixa ou prejuízo.</li>
+          <li>Não invente valor: os botões “Abrir o iFood para ver preços e taxas” e “Abrir o 99Food para ver preços e taxas” abrem o painel do aplicativo direto. Copie de lá o preço de cada doce e a taxa do plano.</li>
           <li>Custo por unidade: vem sozinho das últimas 5 fornadas registradas na Cozinha (custo dos mantimentos dividido pelos doces que saíram). Se digitar um custo, vale o digitado.</li>
           <li>Some também a embalagem, o gás e a luz por unidade, no campo próprio.</li>
           <li>CMV é o Custo da Mercadoria Vendida: mantimentos, embalagem, gás e luz de cada doce. CMV % = CMV ÷ preço. Em doceria, o comum é 25% a 35%. Acima da meta, o doce está barato para o que custa.</li>
@@ -3377,6 +3413,14 @@
       document.getElementById("canal-fundo").classList.remove("aberto");
       if (canal) abrirAplicativo(canal);
     };
+    document.getElementById("canal-olhar").onclick = () => {
+      const canal = canalPendente;
+      canalPendente = "";
+      document.getElementById("canal-fundo").classList.remove("aberto");
+      if (canal) abrirAplicativo(canal);
+    };
+    document.getElementById("preco-ver-ifood").onclick = () => abrirAplicativo("ifood");
+    document.getElementById("preco-ver-noventa").onclick = () => abrirAplicativo("noventa");
     document.getElementById("ifood-zero").onclick = () => {
       document.getElementById("ifood-saldo").value = dinheiro(0);
       sujo.ifood = true;
@@ -6287,6 +6331,7 @@
         if (botao.dataset.admin === "aba-impressora") carregarImpressoras();
         if (botao.dataset.admin === "aba-mercadopago") carregarMercadoPago();
         if (botao.dataset.admin === "aba-precificacao") carregarPrecificacao();
+        if (botao.dataset.admin === "aba-ifood") carregarIfoodApi();
       };
     });
 
@@ -6345,6 +6390,87 @@
       document.getElementById("mp-extras").innerHTML = "";
       (extras || []).forEach(linhaExtraMp);
     }
+
+    function mostrarIfoodApi(dados) {
+      const ligado = !!dados.ligado;
+      const busca = dados.ultimaBusca || {};
+      document.getElementById("ifood-api-estado").textContent = ligado
+        ? `Ligada${dados.loja ? ` na loja ${dados.loja}` : ""} desde ${dados.ligadoEm}. Client ID termina em ${dados.clientIdFim}.`
+        : "Desligada. O valor de vendas do dia continua sendo digitado.";
+      document.getElementById("ifood-api-desligar").hidden = !ligado;
+      document.getElementById("ifood-api-buscar").hidden = !ligado;
+      document.getElementById("ifood-api-merchant").value = dados.merchantId || "";
+      document.getElementById("ifood-api-busca").textContent = ligado && busca.buscadoEm
+        ? `Última busca: ${busca.buscadoEm}, ${busca.pedidos} pedido(s), bruto ${dinheiro(busca.bruto)}, o iFood calcula ${dinheiro(busca.liquido)} para a loja.`
+        : "";
+    }
+
+    async function pedirIfoodApi(caminho, opcoes = {}) {
+      const aviso = document.getElementById("ifood-api-aviso");
+      const resposta = await fetch(caminho, {
+        ...opcoes,
+        headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() }
+      });
+      const corpo = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        aviso.textContent = typeof corpo.detail === "string" ? corpo.detail : "O iFood não respondeu.";
+        aviso.className = "aviso erro";
+        return null;
+      }
+      return corpo;
+    }
+
+    async function carregarIfoodApi() {
+      const dados = await pedirIfoodApi("/api/ifood/api");
+      if (dados) mostrarIfoodApi(dados);
+    }
+
+    document.getElementById("ifood-api-ligar").onclick = async () => {
+      const aviso = document.getElementById("ifood-api-aviso");
+      aviso.textContent = "Conferindo com o iFood…";
+      aviso.className = "aviso";
+      const dados = await pedirIfoodApi("/api/ifood/api", {
+        method: "POST",
+        body: JSON.stringify({
+          clientId: document.getElementById("ifood-api-client-id").value,
+          clientSecret: document.getElementById("ifood-api-client-secret").value,
+          merchantId: document.getElementById("ifood-api-merchant").value
+        })
+      });
+      if (!dados) return;
+      document.getElementById("ifood-api-client-id").value = "";
+      document.getElementById("ifood-api-client-secret").value = "";
+      aviso.textContent = "API do iFood ligada. Use “Buscar as vendas de hoje no iFood”.";
+      aviso.className = "aviso ok";
+      mostrarIfoodApi(dados);
+    };
+    document.getElementById("ifood-api-desligar").onclick = async () => {
+      const dados = await pedirIfoodApi("/api/ifood/api/desligar", { method: "POST" });
+      if (!dados) return;
+      const aviso = document.getElementById("ifood-api-aviso");
+      aviso.textContent = "API do iFood desligada. A chave foi apagada deste computador.";
+      aviso.className = "aviso ok";
+      mostrarIfoodApi(dados);
+    };
+    document.getElementById("ifood-api-buscar").onclick = async () => {
+      const botao = document.getElementById("ifood-api-buscar");
+      const nota = document.getElementById("ifood-api-busca");
+      botao.disabled = true;
+      nota.textContent = "Buscando as vendas de hoje no iFood…";
+      try {
+        const dados = await pedirIfoodApi("/api/ifood/vendas-hoje", { method: "POST" });
+        if (!dados) {
+          nota.textContent = document.getElementById("ifood-api-aviso").textContent;
+          return;
+        }
+        document.getElementById("ifood-saldo").value = dinheiro(dados.bruto);
+        sujo.ifood = true;
+        anotarPasso("ifood");
+        nota.textContent = `${dados.pedidos} pedido(s) hoje${dados.cancelados ? ` e ${dados.cancelados} cancelado(s) fora da conta` : ""}. Bruto ${dinheiro(dados.bruto)}; o iFood calcula ${dinheiro(dados.liquido)} para a loja. Confira e salve na aba Banco.`;
+      } finally {
+        botao.disabled = false;
+      }
+    };
 
     async function carregarMercadoPago() {
       const dados = await pedirMercadoPago("/api/mercadopago");
@@ -6977,6 +7103,7 @@
       document.getElementById("admin-login").hidden = true;
       document.getElementById("admin-painel").hidden = false;
       preencherBancos(dados);
+      if (!fantasmaLigado()) carregarIfoodApi();
       desenharAdminLeitura(ultimoResumo, dados);
     }
     async function entrarAdmin(senha) {

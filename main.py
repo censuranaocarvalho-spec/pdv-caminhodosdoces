@@ -5558,6 +5558,242 @@ def guardar_precificacao(payload: Precificacao, request: Request):
     return precificacao_publica()
 
 
+ARQUIVO_IFOOD_API = os.path.join(RAIZ, "dados", "ifood-api.json")
+IFOOD_API = "https://merchant-api.ifood.com.br"
+STATUS_CANCELADO_IFOOD = {"CANCELLED", "CANCELED", "CANCELLATION_REQUESTED"}
+
+
+def ler_ifood_api() -> dict:
+    try:
+        with open(ARQUIVO_IFOOD_API, encoding="utf-8") as arquivo:
+            dados = json.load(arquivo)
+    except (OSError, ValueError):
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+
+def gravar_ifood_api(dados: dict) -> None:
+    os.makedirs(os.path.dirname(ARQUIVO_IFOOD_API), exist_ok=True)
+    temporario = ARQUIVO_IFOOD_API + ".tmp"
+    with open(temporario, "w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+    try:
+        os.chmod(temporario, 0o600)
+    except OSError:
+        pass
+    os.replace(temporario, ARQUIVO_IFOOD_API)
+
+
+def chamar_ifood(metodo: str, caminho: str, token: str = "", formulario: dict | None = None) -> tuple[int, object]:
+    cabecalhos = {"Accept": "application/json", "User-Agent": "CaminhoDosDoces-PDV/1.0"}
+    dados = None
+    if token:
+        cabecalhos["Authorization"] = f"Bearer {token}"
+    if formulario is not None:
+        dados = urlencode(formulario).encode("utf-8")
+        cabecalhos["Content-Type"] = "application/x-www-form-urlencoded"
+    pedido = urllib.request.Request(IFOOD_API + caminho, data=dados, method=metodo, headers=cabecalhos)
+    try:
+        with urllib.request.urlopen(pedido, timeout=25) as resposta:
+            texto = resposta.read().decode("utf-8", "replace")
+            status = resposta.status
+    except HTTPError as erro:
+        texto = erro.read().decode("utf-8", "replace")
+        status = erro.code
+    except (URLError, TimeoutError, OSError):
+        raise HTTPException(status_code=502, detail="O iFood não respondeu. Confira a internet e tente de novo.")
+    try:
+        return status, json.loads(texto) if texto.strip() else {}
+    except ValueError:
+        return status, {"message": texto[:300]}
+
+
+def motivo_ifood(corpo: object) -> str:
+    if isinstance(corpo, dict):
+        erro = corpo.get("error")
+        if isinstance(erro, dict):
+            return str(erro.get("message") or erro.get("code") or "sem motivo informado")
+        return str(corpo.get("message") or erro or "sem motivo informado")
+    return "sem motivo informado"
+
+
+def pedir_token_ifood(client_id: str, client_secret: str) -> tuple[str, float]:
+    status, corpo = chamar_ifood("POST", "/authentication/v1.0/oauth/token", formulario={
+        "grantType": "client_credentials",
+        "clientId": client_id,
+        "clientSecret": client_secret,
+    })
+    if status in (400, 401, 403):
+        raise HTTPException(status_code=400, detail="O iFood não aceitou o Client ID e o Client Secret. Copie de novo do Portal do Desenvolvedor.")
+    if status != 200 or not isinstance(corpo, dict) or not corpo.get("accessToken"):
+        raise HTTPException(status_code=502, detail=f"O iFood respondeu: {motivo_ifood(corpo)}")
+    validade = int(corpo.get("expiresIn") or 0) or 10800
+    return str(corpo["accessToken"]), time.time() + validade
+
+
+def token_ifood(forcar: bool = False) -> tuple[str, dict]:
+    dados = ler_ifood_api()
+    if not dados.get("clientId") or not dados.get("clientSecret"):
+        raise HTTPException(status_code=400, detail="A API do iFood não está ligada. Ligue no Administrativo, aba iFood.")
+    if forcar or not dados.get("accessToken") or dados.get("expiraEm", 0) - time.time() < 300:
+        dados["accessToken"], dados["expiraEm"] = pedir_token_ifood(dados["clientId"], dados["clientSecret"])
+        gravar_ifood_api(dados)
+    return dados["accessToken"], dados
+
+
+def lojas_ifood(token: str) -> list[dict]:
+    status, corpo = chamar_ifood("GET", "/merchant/v1.0/merchants", token)
+    if status in (401, 403):
+        raise HTTPException(status_code=400, detail="O aplicativo ainda não tem permissão para ver a loja no iFood. A liberação pode levar até 10 minutos.")
+    if status != 200 or not isinstance(corpo, list):
+        raise HTTPException(status_code=502, detail=f"O iFood respondeu: {motivo_ifood(corpo)}")
+    return [
+        {"id": str(loja.get("id") or ""), "nome": str(loja.get("name") or loja.get("corporateName") or "")}
+        for loja in corpo if isinstance(loja, dict) and loja.get("id")
+    ]
+
+
+def ifood_api_publico() -> dict:
+    dados = ler_ifood_api()
+    client_id = dados.get("clientId") or ""
+    return {
+        "ligado": bool(client_id and dados.get("clientSecret") and dados.get("merchantId")),
+        "clientIdFim": client_id[-4:] if client_id else "",
+        "merchantId": dados.get("merchantId") or "",
+        "loja": dados.get("loja") or "",
+        "ligadoEm": dados.get("ligadoEm") or "",
+        "ultimaBusca": dados.get("ultimaBusca") or {},
+    }
+
+
+class IfoodApiChave(BaseModel):
+    clientId: str
+    clientSecret: str
+    merchantId: str = ""
+
+
+@app.get("/api/ifood/api")
+def ver_ifood_api(request: Request):
+    exigir_admin(request)
+    return ifood_api_publico()
+
+
+@app.post("/api/ifood/api")
+def ligar_ifood_api(payload: IfoodApiChave, request: Request):
+    exigir_admin(request)
+    client_id = payload.clientId.strip()
+    client_secret = payload.clientSecret.strip()
+    merchant_id = payload.merchantId.strip()
+    if not re.fullmatch(r"[A-Za-z0-9-]{8,80}", client_id):
+        raise HTTPException(status_code=400, detail="Esse Client ID não parece o do iFood. Copie de novo do Portal do Desenvolvedor.")
+    if not re.fullmatch(r"\S{8,200}", client_secret):
+        raise HTTPException(status_code=400, detail="Cole o Client Secret do aplicativo do iFood.")
+    if merchant_id and not re.fullmatch(r"[A-Za-z0-9-]{8,80}", merchant_id):
+        raise HTTPException(status_code=400, detail="O Merchant ID é o código da loja no iFood, com letras, números e traços.")
+    token, expira = pedir_token_ifood(client_id, client_secret)
+    lojas = lojas_ifood(token)
+    if merchant_id:
+        loja = next((item for item in lojas if item["id"] == merchant_id), None)
+        if not loja:
+            raise HTTPException(status_code=400, detail="Esse Merchant ID não está liberado para este aplicativo no iFood.")
+    elif len(lojas) == 1:
+        loja = lojas[0]
+    elif not lojas:
+        raise HTTPException(status_code=400, detail="O aplicativo ainda não tem nenhuma loja liberada no iFood. Autorize a loja no Portal do Parceiro e tente em 10 minutos.")
+    else:
+        raise HTTPException(status_code=400, detail="Este aplicativo vê mais de uma loja. Cole o Merchant ID da Caminho dos Doces.")
+    gravar_ifood_api({
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "merchantId": loja["id"],
+        "loja": loja["nome"],
+        "accessToken": token,
+        "expiraEm": expira,
+        "ligadoEm": agora_texto(),
+    })
+    return ifood_api_publico()
+
+
+@app.post("/api/ifood/api/desligar")
+def desligar_ifood_api(request: Request):
+    exigir_admin(request)
+    try:
+        os.remove(ARQUIVO_IFOOD_API)
+    except OSError:
+        pass
+    return ifood_api_publico()
+
+
+def valor_ifood(campo: object) -> float:
+    if isinstance(campo, dict):
+        campo = campo.get("value")
+    try:
+        return float(campo or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def somar_vendas_ifood(vendas: list) -> dict:
+    loja_entrega = (ADMIN.get("ifoodPlano") or "BASICO") == "BASICO"
+    bruto = liquido = 0.0
+    pedidos = cancelados = 0
+    for venda in vendas:
+        if not isinstance(venda, dict):
+            continue
+        if str(venda.get("currentStatus") or "").upper() in STATUS_CANCELADO_IFOOD:
+            cancelados += 1
+            continue
+        valores = venda.get("saleGrossValue") or {}
+        bruto += valor_ifood(valores.get("bag"))
+        if loja_entrega:
+            bruto += valor_ifood(valores.get("deliveryFee"))
+        liquido += valor_ifood((venda.get("billingSummary") or {}).get("saleBalance"))
+        pedidos += 1
+    return {"bruto": round(bruto, 2), "liquido": round(liquido, 2), "pedidos": pedidos, "cancelados": cancelados}
+
+
+@app.post("/api/ifood/vendas-hoje")
+def buscar_vendas_ifood_hoje(request: Request):
+    exigir_admin(request)
+    token, dados = token_ifood()
+    merchant = dados.get("merchantId") or ""
+    if not merchant:
+        raise HTTPException(status_code=400, detail="Falta o Merchant ID da loja. Ligue a API do iFood de novo.")
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    vendas: list = []
+    pagina = 1
+    tentou_token_novo = False
+    while pagina <= 20:
+        caminho = (
+            f"/financial/v3.0/merchants/{quote(merchant)}/sales?"
+            + urlencode({"beginSalesDate": hoje, "endSalesDate": hoje, "page": pagina, "size": 100})
+        )
+        status, corpo = chamar_ifood("GET", caminho, token)
+        if status == 401 and not tentou_token_novo:
+            token, dados = token_ifood(forcar=True)
+            tentou_token_novo = True
+            continue
+        if status in (401, 403):
+            raise HTTPException(status_code=400, detail="O iFood não liberou a API Financeira para este aplicativo. Peça a liberação no Portal do Desenvolvedor.")
+        if status == 404:
+            break
+        if status != 200 or not isinstance(corpo, dict):
+            raise HTTPException(status_code=502, detail=f"O iFood respondeu: {motivo_ifood(corpo)}")
+        lote = corpo.get("sales") or []
+        vendas.extend(lote)
+        total_paginas = int(corpo.get("pageCount") or 0)
+        if not lote or (total_paginas and pagina >= total_paginas) or len(lote) < 100:
+            break
+        pagina += 1
+    resumo = somar_vendas_ifood(vendas)
+    resumo.update({"data": datetime.now().strftime("%d/%m/%Y"), "buscadoEm": agora_texto()})
+    dados = ler_ifood_api()
+    if dados:
+        dados["ultimaBusca"] = resumo
+        gravar_ifood_api(dados)
+    return resumo
+
+
 if garantir_senha_admin() or garantir_conferencia_antiga():
     salvar()
 
