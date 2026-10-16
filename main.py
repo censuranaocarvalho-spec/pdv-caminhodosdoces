@@ -10,6 +10,7 @@ Painel: http://127.0.0.1:8090
 
 import base64
 import hashlib
+import io
 import json
 import math
 import os
@@ -40,6 +41,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover
+    Image = None
+
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 FRONTEND = os.path.join(RAIZ, "frontend")
 ARQUIVO = os.path.join(RAIZ, "dados", "pdv.json")
@@ -48,9 +54,50 @@ PASTA_FISICA = os.path.join(RAIZ, "dados", "pessoa-fisica")
 PASTA_JURIDICA = os.path.join(RAIZ, "dados", "pessoa-juridica")
 PRAZO_RECIBO_DIAS = 365
 PERFIL_WHATSAPP = os.path.join(RAIZ, "dados", "whatsapp-perfil")
+CAMINHO_LOGO = os.path.join(FRONTEND, "logo.png")
 PORTA_WHATSAPP = 9333
 JUROS_MES = 0.0199
 WHATSAPP_DONA = "5561994429261"
+
+
+def ajustar_logo(origem, destino: str = "", lado: int = 512, margem_pct: float = 0.08) -> str:
+    """Encaixa o logo num quadrado sem cortar nem estourar a moldura."""
+    if Image is None:
+        raise HTTPException(status_code=500, detail="Falta a biblioteca Pillow para ajustar o logo.")
+    destino = destino or CAMINHO_LOGO
+    if isinstance(origem, (bytes, bytearray)):
+        imagem = Image.open(io.BytesIO(origem))
+    elif isinstance(origem, str) and origem.startswith("data:image"):
+        parte = origem.split(",", 1)
+        if len(parte) != 2:
+            raise HTTPException(status_code=400, detail="A imagem do logo não veio completa.")
+        try:
+            imagem = Image.open(io.BytesIO(base64.b64decode(parte[1])))
+        except Exception as erro:
+            raise HTTPException(status_code=400, detail="Não deu para ler a imagem do logo.") from erro
+    else:
+        imagem = Image.open(origem)
+    imagem = imagem.convert("RGBA")
+    fundo = Image.new("RGBA", (lado, lado), (255, 255, 255, 255))
+    area = max(32, int(lado * (1 - 2 * margem_pct)))
+    copia = imagem.copy()
+    copia.thumbnail((area, area), Image.Resampling.LANCZOS)
+    x = (lado - copia.width) // 2
+    y = (lado - copia.height) // 2
+    fundo.paste(copia, (x, y), copia)
+    os.makedirs(os.path.dirname(destino) or ".", exist_ok=True)
+    fundo.convert("RGB").save(destino, "PNG", optimize=True)
+    return destino
+
+
+def logo_publico() -> dict:
+    existe = os.path.isfile(CAMINHO_LOGO)
+    versao = int(os.path.getmtime(CAMINHO_LOGO)) if existe else 0
+    return {
+        "ok": existe,
+        "url": f"/static/logo.png?v={versao}" if existe else "",
+        "versao": versao,
+    }
 REDES_LOJA = (
     ("WhatsApp", "https://wa.me/5561994429261"),
     ("Instagram", "https://www.instagram.com/caminhodosdoces/"),
@@ -103,6 +150,8 @@ ADMIN = {}
 TOKENS_ADMIN = {}
 FALHAS_SENHA = {"n": 0, "ate": 0.0}
 TAREFAS = []
+ESTORNOS = []
+MP_VIGILANCIA = []
 CAIXA = {"status": "ABERTO", "saldo": 0.0}
 CARDAPIO_INICIAL = (
     ("Apliques", 4.00, 0, "a partir de"),
@@ -228,6 +277,8 @@ def carregar():
     TAXAS_PAGAS[:] = dados.get("taxas", [])
     FOLHA[:] = dados.get("folha", [])
     TAREFAS[:] = dados.get("tarefas", [])
+    ESTORNOS[:] = dados.get("estornos", [])
+    MP_VIGILANCIA[:] = dados.get("mpVigilancia", [])
     ADMIN.clear()
     ADMIN.update(dados.get("admin") or {})
     CAIXA.update(dados.get("caixa", CAIXA))
@@ -237,8 +288,12 @@ def carregar():
     else:
         CARDAPIO[:] = dados.get("cardapio", [])
         novo_cardapio = completar_fotos()
-    if incluir_clientes_dos_pedidos() or novo_cardapio:
-        descartar_pdf_cardapio()
+    if corrigir_minimos_cardapio():
+        novo_cardapio = True
+    clientes_mudou = incluir_clientes_dos_pedidos() or bool(deduplicar_clientes_por_telefone())
+    if clientes_mudou or novo_cardapio:
+        if novo_cardapio:
+            descartar_pdf_cardapio()
         salvar()
     os.makedirs(PASTA_RECIBOS, exist_ok=True)
     apagar_recibos_antigos()
@@ -259,6 +314,8 @@ def salvar():
                 "taxas": TAXAS_PAGAS,
                 "folha": FOLHA,
                 "tarefas": TAREFAS,
+                "estornos": ESTORNOS,
+                "mpVigilancia": MP_VIGILANCIA,
                 "admin": ADMIN,
             },
             arquivo,
@@ -295,6 +352,25 @@ def foto_padrao(item_id: str) -> str:
     if os.path.exists(os.path.join(FRONTEND, "fotos", f"{origem}.jpg")):
         return f"/static/fotos/{origem}.jpg"
     return "/static/fotos/generica.jpg"
+
+
+def corrigir_minimos_cardapio() -> bool:
+    """Corrige mínimos corrompidos (ex.: todos em 1000) com os valores do cardápio inicial."""
+    ativos = [item for item in CARDAPIO if item.get("ativo", True)]
+    if len(ativos) < 3:
+        return False
+    com_mil = sum(1 for item in ativos if int(item.get("minimo") or 0) == 1000)
+    if com_mil < max(3, len(ativos) // 2):
+        return False
+    por_nome = {nome: int(minimo) for nome, _preco, minimo, _obs in CARDAPIO_INICIAL}
+    mudou = False
+    for item in CARDAPIO:
+        if int(item.get("minimo") or 0) != 1000:
+            continue
+        certo = por_nome.get(item.get("nome") or "")
+        item["minimo"] = certo if certo is not None else 0
+        mudou = True
+    return mudou
 
 
 def completar_fotos() -> bool:
@@ -362,6 +438,10 @@ def link_cupom(request: Request, order_id: str) -> str:
     return f"{base_publica(request)}/c/{order_id}"
 
 
+def link_cobranca_mp(request: Request, order_id: str, indice: int = 0) -> str:
+    return f"{base_publica(request)}/c/{order_id}/cobranca?parte={indice}"
+
+
 def telefone_exibicao(telefone: str) -> str:
     digitos = "".join(caractere for caractere in telefone if caractere.isdigit())
     if digitos.startswith("55") and len(digitos) > 11:
@@ -416,6 +496,13 @@ def telefone_whatsapp(telefone: str) -> str:
     if digitos.startswith("55") and len(digitos) >= 12:
         return digitos
     return "55" + digitos
+
+
+def email_valido(texto: str) -> str:
+    email = (texto or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1] or " " in email:
+        return ""
+    return email
 
 
 def legenda_redes(nome: str, cupom_tipo: str = "") -> str:
@@ -484,14 +571,50 @@ def nome_provisorio(nome: str, telefone: str) -> bool:
     return digitos == telefone_chave(telefone) and len(digitos) >= 10
 
 
-def achar_cliente(telefone: str) -> dict | None:
+def achar_cliente(telefone: str, exceto_id: str = "") -> dict | None:
     chave = telefone_chave(telefone)
     if len(chave) < 10:
         return None
     for cliente in CLIENTES:
+        if exceto_id and cliente.get("id") == exceto_id:
+            continue
         if telefone_chave(cliente.get("telefone", "")) == chave:
             return cliente
     return None
+
+
+def deduplicar_clientes_por_telefone() -> int:
+    """Junta fichas com o mesmo telefone e devolve quantas foram removidas."""
+    por_chave: dict[str, dict] = {}
+    manter: list[dict] = []
+    removidos = 0
+    for cliente in list(CLIENTES):
+        chave = telefone_chave(cliente.get("telefone", ""))
+        if len(chave) < 10:
+            manter.append(cliente)
+            continue
+        atual = por_chave.get(chave)
+        if not atual:
+            por_chave[chave] = cliente
+            manter.append(cliente)
+            continue
+        removidos += 1
+        preferir = cliente if cliente.get("organizado") and not atual.get("organizado") else atual
+        outro = atual if preferir is cliente else cliente
+        if preferir is cliente:
+            idx = manter.index(atual)
+            manter[idx] = cliente
+            por_chave[chave] = cliente
+        for campo in ("nome", "cpf", "email", "endereco", "cep", "observacoes", "origem"):
+            if (outro.get(campo) or "").strip() and not (preferir.get(campo) or "").strip():
+                preferir[campo] = outro[campo]
+        if outro.get("organizado"):
+            preferir["organizado"] = True
+        if not outro.get("novo", True):
+            preferir["novo"] = False
+    if removidos:
+        CLIENTES[:] = manter
+    return removidos
 
 
 def mesclar_contato(nome: str, telefone: str, origem: str = "WhatsApp") -> dict | None:
@@ -513,6 +636,7 @@ def mesclar_contato(nome: str, telefone: str, origem: str = "WhatsApp") -> dict 
         "nome": nome_limpo or exibicao,
         "telefone": exibicao,
         "cpf": "",
+        "email": "",
         "origem": origem or "WhatsApp",
         "endereco": "",
         "cep": "",
@@ -540,6 +664,10 @@ def incluir_clientes_dos_pedidos() -> bool:
             if valor and not (cliente.get(campo) or "").strip():
                 cliente[campo] = valor
                 mudou = True
+        email_pedido = email_valido(pedido.get("emailCliente") or "")
+        if email_pedido and not email_valido(cliente.get("email") or ""):
+            cliente["email"] = email_pedido
+            mudou = True
     return mudou
 
 
@@ -559,7 +687,10 @@ def atualizar_cliente_do_atendimento(payload: "NovoPedido") -> None:
         cliente["observacoes"] = payload.observacoes.strip()
     if payload.origem.strip():
         cliente["origem"] = payload.origem.strip()
-    if payload.cpf.strip() or payload.endereco.strip() or payload.observacoes.strip():
+    email = email_valido(getattr(payload, "emailCliente", "") or "")
+    if email:
+        cliente["email"] = email
+    if payload.cpf.strip() or payload.endereco.strip() or payload.observacoes.strip() or email:
         cliente["organizado"] = True
     cliente["atualizadoEm"] = agora_texto()
 
@@ -781,14 +912,29 @@ EXTRACAO_CONTATOS = r"""(async () => {
     if (typeof id === "object" && id._serialized) return String(id._serialized);
     return "";
   }
+  function ehGrupoOuLista(id) {
+    const texto = String(id || "").toLowerCase();
+    return (
+      texto.endsWith("@g.us")
+      || texto.includes("@g.us")
+      || texto.includes("broadcast")
+      || texto.endsWith("@newsletter")
+      || texto.includes("@newsletter")
+      || texto.includes("status@broadcast")
+    );
+  }
+  function ehPessoa(id) {
+    const texto = String(id || "");
+    return texto.endsWith("@s.whatsapp.net") || texto.endsWith("@c.us");
+  }
   function foneDe(item) {
+    if (!item || item.isGroup || item.groupMetadata) return "";
     let digitos = String(item.phoneNumber || "").replace(/\D/g, "");
     if (digitos.length >= 10 && digitos.length <= 15) return digitos;
     const id = ser(item.id);
-    if (id.endsWith("@s.whatsapp.net") || id.endsWith("@c.us")) {
-      digitos = id.split("@")[0].replace(/\D/g, "");
-      if (digitos.length >= 10 && digitos.length <= 15) return digitos;
-    }
+    if (ehGrupoOuLista(id) || !ehPessoa(id)) return "";
+    digitos = id.split("@")[0].replace(/\D/g, "");
+    if (digitos.length >= 10 && digitos.length <= 15) return digitos;
     return "";
   }
   const contatos = await getAll("contact");
@@ -799,16 +945,19 @@ EXTRACAO_CONTATOS = r"""(async () => {
   function considerar(item) {
     if (!item) return;
     const id = ser(item.id);
-    if (!id || vistosId.has(id) || id.endsWith("@g.us") || id.includes("broadcast")) return;
+    if (!id || vistosId.has(id) || ehGrupoOuLista(id) || !ehPessoa(id)) return;
+    if (item.isGroup || item.groupMetadata) return;
     vistosId.add(id);
     escolhidos.push(item);
   }
+  // Só agenda do celular e conversa 1 a 1 — nunca participantes de grupo.
   for (const item of contatos) {
-    if (item.isAddressBookContact || item.name) considerar(item);
+    if (item.isAddressBookContact === true || item.isAddressBookContact === 1) considerar(item);
   }
   for (const chat of chats) {
     const id = ser(chat.id);
-    if (!id.endsWith("@g.us")) considerar(porId.get(id) || chat);
+    if (ehGrupoOuLista(id) || !ehPessoa(id) || chat.isGroup) continue;
+    considerar(porId.get(id) || chat);
   }
   const saida = [];
   const vistosFone = new Set();
@@ -816,7 +965,7 @@ EXTRACAO_CONTATOS = r"""(async () => {
     const fone = foneDe(item);
     if (!fone || vistosFone.has(fone)) continue;
     vistosFone.add(fone);
-    const nome = String(item.name || item.shortName || item.pushname || item.displayNameLID || "").replace(/\s+/g, " ").trim();
+    const nome = String(item.name || item.shortName || item.pushname || item.verifiedName || "").replace(/\s+/g, " ").trim();
     saida.push({ nome: nome.slice(0, 80), telefone: fone });
   }
   db.close();
@@ -839,9 +988,14 @@ def estado_whatsapp(aba: dict) -> dict:
     ) or {}
 
 
-def anexar_arquivo(aba: dict, pdf: str) -> None:
+def anexar_arquivo(aba: dict, caminho: str, seletores: list[str] | None = None) -> None:
     conexao = websocket.create_connection(aba["webSocketDebuggerUrl"], timeout=30, suppress_origin=True)
     sequencia = 0
+    candidatos = seletores or [
+        "input[type=file][accept='*']",
+        "input[type=file][accept*='image']",
+        "input[type=file]",
+    ]
 
     def chamar(metodo: str, params: dict | None = None) -> dict:
         nonlocal sequencia
@@ -860,13 +1014,18 @@ def anexar_arquivo(aba: dict, pdf: str) -> None:
     try:
         chamar("DOM.enable")
         documento = chamar("DOM.getDocument", {"depth": 0})
-        busca = chamar("DOM.querySelector", {
-            "nodeId": documento["root"]["nodeId"],
-            "selector": "input[type=file][accept='*']",
-        })
-        if not busca.get("nodeId"):
-            raise HTTPException(status_code=400, detail="O WhatsApp não abriu o anexo do cupom.")
-        chamar("DOM.setFileInputFiles", {"nodeId": busca["nodeId"], "files": [pdf]})
+        node_id = 0
+        for seletor in candidatos:
+            busca = chamar("DOM.querySelector", {
+                "nodeId": documento["root"]["nodeId"],
+                "selector": seletor,
+            })
+            if busca.get("nodeId"):
+                node_id = busca["nodeId"]
+                break
+        if not node_id:
+            raise HTTPException(status_code=400, detail="O WhatsApp não abriu o anexo.")
+        chamar("DOM.setFileInputFiles", {"nodeId": node_id, "files": [caminho]})
     finally:
         conexao.close()
 
@@ -1049,26 +1208,272 @@ def enviar_pdf_no_whatsapp(aba: dict, telefone: str, texto: str, pdf: str) -> No
             break
     if not colado:
         raise HTTPException(status_code=400, detail="O link não entrou na legenda do PDF.")
-    clicou = avaliar_na_aba(
+    try:
+        clicar_enviar_whatsapp(aba, tentativas=25, intervalo=0.35)
+    except HTTPException as erro:
+        detalhe = erro.detail if isinstance(erro.detail, str) else ""
+        if "envio não saiu" in detalhe:
+            raise HTTPException(status_code=400, detail="O PDF ficou pronto no WhatsApp, mas o envio não saiu. No WhatsApp Web, aperte Enviar uma vez.") from erro
+        raise
+
+
+def _aguardar_conversa_whatsapp(aba: dict, telefone: str) -> None:
+    navegar_aba(aba, f"https://web.whatsapp.com/send?phone={telefone_whatsapp(telefone)}")
+    for _ in range(30):
+        estado = avaliar_na_aba(
+            aba,
+            """(() => {
+              const rotulos = [...document.querySelectorAll('button')].map((el) => el.getAttribute('aria-label') || '');
+              const texto = (document.body && document.body.innerText || '').slice(0, 400);
+              return { anexar: rotulos.includes('Anexar'), invalido: texto.includes('inválido') };
+            })()""",
+            aguardar=False,
+        ) or {}
+        if estado.get("invalido"):
+            raise HTTPException(status_code=400, detail="Esse telefone não abriu conversa no WhatsApp.")
+        if estado.get("anexar"):
+            return
+        time.sleep(0.5)
+    raise HTTPException(status_code=400, detail="A conversa do WhatsApp não abriu neste computador.")
+
+
+def _colar_legenda_whatsapp(aba: dict, texto: str) -> None:
+    avaliar_na_aba(
         aba,
-        """(() => {
-          const botao = [...document.querySelectorAll('button,[role="button"],div[aria-label]')].find((el) =>
-            (el.getAttribute('aria-label') || '').startsWith('Enviar')
-          );
-          if (botao) { botao.click(); return true; }
-          const icone = document.querySelector('[data-icon="wds-ic-send-filled"]');
-          const alvo = icone && (icone.closest('button') || icone.closest('[role="button"]') || icone.parentElement);
-          if (!alvo) return false;
-          alvo.click();
+        f"""((texto) => {{
+          const caixa = [...document.querySelectorAll('[contenteditable="true"]')].find((el) => {{
+            const rotulo = el.getAttribute('aria-label') || '';
+            return rotulo === 'Digite uma mensagem' || rotulo.startsWith('Adicione uma legenda')
+              || rotulo.startsWith('Digite uma mensagem') || rotulo.toLowerCase().startsWith('type a message')
+              || rotulo.toLowerCase().startsWith('add a caption');
+          }});
+          if (!caixa) return false;
+          caixa.focus();
+          const dados = new DataTransfer();
+          dados.setData('text/plain', texto);
+          caixa.dispatchEvent(new ClipboardEvent('paste', {{clipboardData: dados, bubbles: true, cancelable: true}}));
           return true;
-        })()""",
-        aguardar=False,
+        }})({json.dumps(texto)})""",
     )
-    if not clicou:
-        raise HTTPException(status_code=400, detail="O PDF ficou pronto no WhatsApp, mas o envio não saiu.")
 
 
-def abrir_whatsapp_no_computador(telefone: str, texto: str, pedido: str = "") -> dict:
+def enviar_imagem_no_whatsapp(aba: dict, telefone: str, texto: str, imagem: str) -> None:
+    _aguardar_conversa_whatsapp(aba, telefone)
+    preparo = avaliar_na_aba(
+        aba,
+        """(async () => {
+          const original = HTMLInputElement.prototype.click;
+          HTMLInputElement.prototype.click = function() {};
+          try {
+            [...document.querySelectorAll('[aria-label="Remover anexo"]')].forEach((el) => el.click());
+            const anexar = [...document.querySelectorAll('button')].find((el) => el.getAttribute('aria-label') === 'Anexar');
+            if (!anexar) return 'sem-anexar';
+            anexar.click();
+            await new Promise((resolver) => setTimeout(resolver, 350));
+            const botoes = [...document.querySelectorAll('button,[role="button"]')];
+            const fotos = botoes.find((el) => {
+              const rotulo = (el.getAttribute('aria-label') || '').toLowerCase();
+              return rotulo.includes('fotos') || rotulo.includes('photos') || rotulo.includes('galeria') || rotulo.includes('gallery');
+            });
+            const documento = botoes.find((el) => (el.getAttribute('aria-label') || '') === 'Documento');
+            const alvo = fotos || documento;
+            if (!alvo) return 'sem-opcao';
+            alvo.click();
+            await new Promise((resolver) => setTimeout(resolver, 250));
+            return document.querySelector("input[type=file]") ? 'pronto' : 'sem-input';
+          } finally {
+            HTMLInputElement.prototype.click = original;
+          }
+        })()""",
+    )
+    if preparo != "pronto":
+        raise HTTPException(status_code=400, detail="O WhatsApp não abriu o anexo da imagem do Pix.")
+    anexar_arquivo(aba, imagem, [
+        "input[type=file][accept*='image']",
+        "input[type=file][accept='*']",
+        "input[type=file]",
+    ])
+    enviou = False
+    for _ in range(25):
+        time.sleep(0.3)
+        if avaliar_na_aba(
+            aba,
+            """!!(document.querySelector('[data-icon="wds-ic-send-filled"],[data-icon="wds-ic-send"],[data-icon="send"],[data-testid="send"]')
+              || [...document.querySelectorAll('button,[role="button"]')].some((el) => (el.getAttribute('aria-label') || '').toLowerCase().startsWith('enviar')))""",
+            aguardar=False,
+        ):
+            enviou = True
+            break
+    if not enviou:
+        raise HTTPException(status_code=400, detail="A imagem do Pix não apareceu no WhatsApp.")
+    if texto.strip():
+        _colar_legenda_whatsapp(aba, texto)
+        time.sleep(0.3)
+    try:
+        clicar_enviar_whatsapp(aba, tentativas=25, intervalo=0.35)
+    except HTTPException as erro:
+        detalhe = erro.detail if isinstance(erro.detail, str) else ""
+        if "envio não saiu" in detalhe:
+            raise HTTPException(
+                status_code=400,
+                detail="O QR do Pix ficou pronto no WhatsApp, mas o envio não saiu. No WhatsApp Web, aperte Enviar uma vez.",
+            ) from erro
+        raise
+
+
+def _pasta_tmp_whatsapp() -> str:
+    pasta = os.path.join(RAIZ, "dados", "tmp-whatsapp")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
+
+def gravar_imagem_temporaria(imagem_b64: str) -> str:
+    bruto = imagem_b64.split(",", 1)[1] if "," in imagem_b64 else imagem_b64
+    try:
+        conteudo = base64.b64decode(bruto, validate=False)
+    except Exception as erro:
+        raise HTTPException(status_code=400, detail="A imagem do QR do Pix não pôde ser lida.") from erro
+    if not conteudo:
+        raise HTTPException(status_code=400, detail="A imagem do QR do Pix veio vazia.")
+    extensao = _extensao_imagem(conteudo) or "png"
+    caminho = os.path.join(_pasta_tmp_whatsapp(), f"pix-qr-{uuid.uuid4().hex[:10]}.{extensao}")
+    with open(caminho, "wb") as arquivo:
+        arquivo.write(conteudo)
+    return caminho
+
+
+def gerar_qr_pix_arquivo(codigo: str) -> str:
+    codigo = (codigo or "").strip()
+    if len(codigo) < 20:
+        raise HTTPException(status_code=400, detail="Falta o código do Pix para montar o QR.")
+    try:
+        import qrcode
+    except ImportError as erro:
+        raise HTTPException(status_code=500, detail="Falta a biblioteca do QR Code neste computador.") from erro
+    imagem = qrcode.make(codigo)
+    caminho = os.path.join(_pasta_tmp_whatsapp(), f"pix-qr-{uuid.uuid4().hex[:10]}.png")
+    imagem.save(caminho)
+    return caminho
+
+
+def gerar_qr_pix_base64(codigo: str) -> str:
+    caminho = gerar_qr_pix_arquivo(codigo)
+    try:
+        with open(caminho, "rb") as arquivo:
+            return base64.b64encode(arquivo.read()).decode("ascii")
+    finally:
+        try:
+            os.remove(caminho)
+        except OSError:
+            pass
+
+
+def enviar_imagem_como_documento(aba: dict, telefone: str, texto: str, caminho: str) -> None:
+    """Mesmo caminho do PDF: Anexar → Documento. Mais estável que Fotos no WhatsApp Web."""
+    _aguardar_conversa_whatsapp(aba, telefone)
+    preparo = avaliar_na_aba(
+        aba,
+        """(async () => {
+          const original = HTMLInputElement.prototype.click;
+          HTMLInputElement.prototype.click = function() {};
+          try {
+            [...document.querySelectorAll('[aria-label="Remover anexo"]')].forEach((el) => el.click());
+            if (!document.querySelector("input[type=file][accept='*']")) {
+              const anexar = [...document.querySelectorAll('button')].find((el) => el.getAttribute('aria-label') === 'Anexar');
+              if (!anexar) return 'sem-anexar';
+              anexar.click();
+              await new Promise((resolver) => setTimeout(resolver, 300));
+              const documento = [...document.querySelectorAll('button')].find((el) => el.getAttribute('aria-label') === 'Documento');
+              if (!documento) return 'sem-documento';
+              documento.click();
+              await new Promise((resolver) => setTimeout(resolver, 200));
+            }
+            return document.querySelector("input[type=file][accept='*']") ? 'pronto' : 'sem-input';
+          } finally {
+            HTMLInputElement.prototype.click = original;
+          }
+        })()""",
+    )
+    if preparo != "pronto":
+        raise HTTPException(status_code=400, detail="O WhatsApp não abriu o anexo do QR do Pix.")
+    anexar_arquivo(aba, caminho, ["input[type=file][accept='*']", "input[type=file]"])
+    enviou = False
+    for _ in range(25):
+        time.sleep(0.3)
+        if avaliar_na_aba(
+            aba,
+            "!!document.querySelector('[data-icon=\"wds-ic-send-filled\"],[data-icon=\"wds-ic-send\"],[data-icon=\"send\"]')",
+            aguardar=False,
+        ):
+            enviou = True
+            break
+    if not enviou:
+        raise HTTPException(status_code=400, detail="A imagem do Pix não apareceu no WhatsApp.")
+    if texto.strip():
+        _colar_legenda_whatsapp(aba, texto)
+        time.sleep(0.3)
+    try:
+        clicar_enviar_whatsapp(aba, tentativas=25, intervalo=0.35)
+    except HTTPException as erro:
+        detalhe = erro.detail if isinstance(erro.detail, str) else ""
+        if "envio não saiu" in detalhe:
+            raise HTTPException(
+                status_code=400,
+                detail="O QR do Pix ficou pronto no WhatsApp, mas o envio não saiu. No WhatsApp Web, aperte Enviar uma vez.",
+            ) from erro
+        raise
+
+
+def abrir_whatsapp_no_computador(
+    telefone: str,
+    texto: str,
+    pedido: str = "",
+    imagem: str = "",
+    pix_codigo: str = "",
+    cobranca_order_id: str = "",
+    cobranca_parte: int = 0,
+) -> dict:
+    if telefone.strip() and cobranca_order_id.strip():
+        venda = next((item for item in PEDIDOS if item["orderId"] == cobranca_order_id.strip()), None)
+        if not venda:
+            raise HTTPException(status_code=404, detail="Essa venda não existe.")
+        indice = max(int(cobranca_parte or 0), 0)
+        partes = venda.get("partes") or []
+        if indice >= len(partes) or not partes[indice].get("mp"):
+            raise HTTPException(status_code=400, detail="Não achei a cobrança do Mercado Pago dessa venda.")
+        parte = partes[indice]
+        if parte.get("mp") == "PIX":
+            codigo, _ = garantir_qr_parte(parte)
+            if not codigo and pix_codigo.strip():
+                parte["qrCode"] = pix_codigo.strip()
+                codigo, _ = garantir_qr_parte(parte)
+            if not codigo:
+                raise HTTPException(status_code=400, detail="O Pix ainda não tem chave. Gere a cobrança de novo.")
+            como_pagar = "Leia o QR no PDF ou abra o link e toque na chave para copiar"
+            rotulo = "Pix"
+        else:
+            if not (parte.get("link") or "").strip():
+                raise HTTPException(status_code=400, detail="O link de pagamento ainda não existe. Gere a cobrança de novo.")
+            como_pagar = "Abra o PDF ou o link e toque em pagar agora"
+            rotulo = parte.get("forma") or "cartão"
+        pdf = gerar_pdf_cobranca_mp(venda["orderId"], indice)
+        porta = os.getenv("PORTA", "8090")
+        link = f"http://{ip_da_rede()}:{porta}/c/{venda['orderId']}/cobranca?parte={indice}"
+        legenda = (
+            f"Olá, {venda['nome']}! Segue a cobrança de {rotulo} do pedido {venda['orderId']} "
+            f"na Caminho dos Doces, no valor de {dinheiro(parte.get('valor') or venda.get('total') or 0)}. "
+            f"{como_pagar}:\n\n{link}"
+        )
+        aba = garantir_whatsapp("https://web.whatsapp.com/")
+        enviar_pdf_no_whatsapp(aba, telefone, legenda, pdf)
+        return {
+            "aberto": True,
+            "pdf": True,
+            "cobrancaMp": True,
+            "cobrancaPix": parte.get("mp") == "PIX",
+            "link": link,
+            "enviado": True,
+        }
     if pedido.strip() and telefone.strip():
         pdf = gerar_pdf_cupom(pedido.strip())
         venda = next((item for item in PEDIDOS if item["orderId"] == pedido.strip()), None)
@@ -1118,6 +1523,25 @@ def abrir_whatsapp_no_computador(telefone: str, texto: str, pedido: str = "") ->
                 "aviso": detalhe or "A cópia para ela não saiu. O cupom da cliente foi enviado.",
             }
         return {"aberto": True, "pdf": True, "copia": True, "aviso": "Ela recebeu a cópia do PDF no WhatsApp."}
+    if telefone.strip() and (imagem.strip() or pix_codigo.strip()):
+        caminho = ""
+        try:
+            if imagem.strip():
+                caminho = gravar_imagem_temporaria(imagem)
+            else:
+                caminho = gerar_qr_pix_arquivo(pix_codigo)
+            aba = garantir_whatsapp("https://web.whatsapp.com/")
+            try:
+                enviar_imagem_como_documento(aba, telefone, texto, caminho)
+            except HTTPException:
+                enviar_imagem_no_whatsapp(aba, telefone, texto, caminho)
+            return {"aberto": True, "pdf": False, "imagem": True, "enviado": True}
+        finally:
+            if caminho:
+                try:
+                    os.remove(caminho)
+                except OSError:
+                    pass
     if telefone.strip() and texto.strip():
         aba = garantir_whatsapp("https://web.whatsapp.com/")
         enviar_texto_no_whatsapp(aba, telefone, texto)
@@ -1132,28 +1556,129 @@ def abrir_whatsapp_no_computador(telefone: str, texto: str, pedido: str = "") ->
     return {"aberto": True, "pdf": False}
 
 
+JS_CLICAR_ENVIAR_WHATSAPP = """(() => {
+  const continuar = [...document.querySelectorAll('button,[role="button"],a,div[role="button"]')].find((el) => {
+    const rotulo = ((el.getAttribute('aria-label') || '') + ' ' + (el.textContent || '')).toLowerCase();
+    return rotulo.includes('continuar para o chat') || rotulo.includes('continue to chat');
+  });
+  if (continuar) { continuar.click(); return 'continuar'; }
+
+  const textoPagina = (document.body && document.body.innerText || '').slice(0, 500).toLowerCase();
+  if (textoPagina.includes('número de telefone inválido') || textoPagina.includes('phone number shared via url is invalid')) {
+    return 'invalido';
+  }
+
+  const rotuloEnviar = (el) => {
+    const rotulo = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+    return rotulo === 'enviar' || rotulo.startsWith('enviar') || rotulo === 'send' || rotulo.startsWith('send');
+  };
+  const botao = [...document.querySelectorAll('button,[role="button"],div[aria-label],span[aria-label]')].find(rotuloEnviar);
+  if (botao) { botao.click(); return 'ok'; }
+
+  const icones = [
+    '[data-icon="wds-ic-send-filled"]',
+    '[data-icon="wds-ic-send"]',
+    '[data-icon="send"]',
+    'span[data-icon="send"]',
+    '[data-testid="send"]',
+    '[data-testid="compose-btn-send"]',
+  ];
+  for (const seletor of icones) {
+    const icone = document.querySelector(seletor);
+    const alvo = icone && (icone.closest('button') || icone.closest('[role="button"]') || icone.parentElement);
+    if (alvo) { alvo.click(); return 'ok'; }
+  }
+
+  const caixa = [...document.querySelectorAll('[contenteditable="true"]')].find((el) => {
+    const rotulo = el.getAttribute('aria-label') || '';
+    return rotulo === 'Digite uma mensagem' || rotulo.startsWith('Digite uma mensagem')
+      || rotulo.toLowerCase().startsWith('type a message') || rotulo.startsWith('Adicione uma legenda');
+  }) || document.querySelector('footer [contenteditable="true"]') || document.querySelector('[contenteditable="true"][data-tab="10"]');
+  if (caixa) {
+    caixa.focus();
+    const enter = (tipo) => caixa.dispatchEvent(new KeyboardEvent(tipo, {
+      key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
+    }));
+    enter('keydown');
+    enter('keypress');
+    enter('keyup');
+    return 'enter';
+  }
+  return false;
+})()"""
+
+
+def clicar_enviar_whatsapp(aba: dict, tentativas: int = 40, intervalo: float = 0.45) -> None:
+    for _ in range(tentativas):
+        time.sleep(intervalo)
+        resultado = avaliar_na_aba(aba, JS_CLICAR_ENVIAR_WHATSAPP, aguardar=False)
+        if resultado == "invalido":
+            raise HTTPException(status_code=400, detail="Esse telefone não abriu conversa no WhatsApp.")
+        if resultado in ("ok", "enter"):
+            time.sleep(0.6)
+            ainda = avaliar_na_aba(
+                aba,
+                """(() => {
+                  const caixa = [...document.querySelectorAll('[contenteditable="true"]')].find((el) => {
+                    const rotulo = el.getAttribute('aria-label') || '';
+                    return rotulo === 'Digite uma mensagem' || rotulo.startsWith('Digite uma mensagem')
+                      || rotulo.toLowerCase().startsWith('type a message') || rotulo.startsWith('Adicione uma legenda');
+                  }) || document.querySelector('footer [contenteditable="true"]');
+                  if (!caixa) return false;
+                  const texto = (caixa.innerText || '').replace(/\\u200b/g, '').trim();
+                  return texto.length > 20;
+                })()""",
+                aguardar=False,
+            )
+            if not ainda:
+                return
+    raise HTTPException(status_code=400, detail="O aviso ficou escrito no WhatsApp, mas o envio não saiu. No WhatsApp Web, aperte Enviar uma vez.")
+
+
 def enviar_texto_no_whatsapp(aba: dict, telefone: str, texto: str) -> None:
     navegar_aba(aba, f"https://web.whatsapp.com/send?phone={telefone_whatsapp(telefone)}&text={quote(texto)}")
-    for _ in range(25):
+    pronto = False
+    for _ in range(35):
         time.sleep(0.4)
-        clicou = avaliar_na_aba(
+        estado = avaliar_na_aba(
             aba,
             """(() => {
-              const botao = [...document.querySelectorAll('button,[role="button"],div[aria-label]')].find((el) =>
-                (el.getAttribute('aria-label') || '').startsWith('Enviar')
-              );
-              if (botao) { botao.click(); return true; }
-              const icone = document.querySelector('[data-icon="wds-ic-send-filled"]');
-              const alvo = icone && (icone.closest('button') || icone.closest('[role="button"]') || icone.parentElement);
-              if (!alvo) return false;
-              alvo.click();
-              return true;
+              const texto = (document.body && document.body.innerText || '').slice(0, 500).toLowerCase();
+              const continuar = [...document.querySelectorAll('button,[role="button"],a')].some((el) => {
+                const rotulo = ((el.getAttribute('aria-label') || '') + ' ' + (el.textContent || '')).toLowerCase();
+                return rotulo.includes('continuar para o chat') || rotulo.includes('continue to chat');
+              });
+              const caixa = !!document.querySelector('footer [contenteditable="true"], [contenteditable="true"][data-tab="10"], [aria-label="Digite uma mensagem"], [aria-label^="Digite uma mensagem"]');
+              return {
+                invalido: texto.includes('número de telefone inválido') || texto.includes('phone number shared via url is invalid'),
+                continuar,
+                caixa,
+              };
             })()""",
             aguardar=False,
-        )
-        if clicou:
-            return
-    raise HTTPException(status_code=400, detail="O aviso ficou escrito no WhatsApp, mas o envio não saiu.")
+        ) or {}
+        if estado.get("invalido"):
+            raise HTTPException(status_code=400, detail="Esse telefone não abriu conversa no WhatsApp.")
+        if estado.get("continuar"):
+            avaliar_na_aba(
+                aba,
+                """(() => {
+                  const continuar = [...document.querySelectorAll('button,[role="button"],a')].find((el) => {
+                    const rotulo = ((el.getAttribute('aria-label') || '') + ' ' + (el.textContent || '')).toLowerCase();
+                    return rotulo.includes('continuar para o chat') || rotulo.includes('continue to chat');
+                  });
+                  if (continuar) { continuar.click(); return true; }
+                  return false;
+                })()""",
+                aguardar=False,
+            )
+            continue
+        if estado.get("caixa"):
+            pronto = True
+            break
+    if not pronto:
+        raise HTTPException(status_code=400, detail="A conversa do WhatsApp não abriu neste computador.")
+    clicar_enviar_whatsapp(aba)
 
 
 def importar_contatos_whatsapp() -> dict:
@@ -1185,13 +1710,18 @@ def importar_contatos_whatsapp() -> dict:
         if not isinstance(item, dict):
             continue
         mesclar_contato(item.get("nome") or "", item.get("telefone") or "", "WhatsApp")
+    novos = max(len(CLIENTES) - antes, 0)
+    juntos = deduplicar_clientes_por_telefone()
     salvar()
     return {
         "total": len(CLIENTES),
-        "novos": max(len(CLIENTES) - antes, 0),
+        "novos": novos,
         "mensagem": (
-            f"{len(CLIENTES)} contatos estão na agenda, com nome e telefone. "
-            "Complete o que faltar. No atendimento, o PDV já usa esses dados."
+            f"{len(CLIENTES)} contatos estão na agenda (só agenda do celular e conversas 1 a 1; "
+            "números de grupo ficam de fora). "
+            + (f"{novos} novo(s). " if novos else "")
+            + (f"{juntos} telefone(s) repetido(s) foram unidos. " if juntos else "")
+            + "Complete o que faltar. No atendimento, o PDV já usa esses dados."
         ),
     }
 
@@ -1200,6 +1730,10 @@ class WhatsAppAbrir(BaseModel):
     telefone: str = ""
     texto: str = ""
     pedido: str = ""
+    imagem: str = ""
+    pixCodigo: str = ""
+    cobrancaOrderId: str = ""
+    cobrancaParte: int = 0
 
 
 class LojaAbrir(BaseModel):
@@ -1210,6 +1744,7 @@ class ClienteAgenda(BaseModel):
     nome: str
     telefone: str
     cpf: str = ""
+    email: str = ""
     endereco: str = ""
     observacoes: str = ""
 
@@ -1289,7 +1824,7 @@ def pagina_cardapio() -> str:
     main {{ max-width: 440px; margin: 24px auto; background: #fff; border: 1px solid #C5CEE6; border-radius: 16px; padding: 18px; }}
     h1 {{ text-align: center; font-size: 20px; margin: 8px 0 4px; }}
     .centro {{ text-align: center; font-size: 13px; }}
-    .logo {{ width: 96px; height: 96px; border-radius: 50%; object-fit: cover; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }}
+    .logo {{ width: 96px; height: 96px; border-radius: 50%; object-fit: contain; padding: 8px; box-sizing: border-box; background: #fff; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }}
     hr {{ border: none; border-top: 1px dashed #7C4A3A; margin: 12px 0; }}
     .item {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #F3E7EA; }}
     .item img {{ width: 92px; height: 92px; object-fit: cover; border-radius: 16px; border: 3px solid #C2E5E9; background: #fff; }}
@@ -1583,7 +2118,14 @@ carregar()
 
 @app.get("/")
 def painel():
-    return FileResponse(os.path.join(FRONTEND, "index.html"))
+    return FileResponse(
+        os.path.join(FRONTEND, "index.html"),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 def dia_operacao(quando: datetime | None = None) -> datetime:
@@ -1796,7 +2338,7 @@ def registrar_venda_dia(lista_chave: str, em_chave: str, inicio_chave: str, tipo
     dias.append({
         "dia": hoje,
         "bruto": conta["bruto"],
-        "liquido": round(conta["bruto"] - conta["juros"], 2),
+        "liquido": round(float(conta.get("liquido") if conta.get("liquido") is not None else conta["bruto"] - conta["juros"]), 2),
     })
     ADMIN[lista_chave] = dias
     ADMIN[em_chave] = agora_texto()
@@ -2029,22 +2571,70 @@ def rodape_cupom(pedido: dict) -> str:
     return "Documento sem valor fiscal."
 
 
-def pagina_cupom(pedido: dict, link: str) -> str:
+ESTILO_CUPOM = """
+    body { margin: 0; background: #FFFBFC; color: #7C4A3A; font-family: Poppins, Verdana, sans-serif; overflow-y: auto; }
+    main { max-width: 440px; margin: 24px auto; background: #fff; border: 1px solid #C5CEE6; border-radius: 16px; padding: 18px; }
+    h1 { text-align: center; font-size: 20px; margin: 8px 0 4px; }
+    .centro { text-align: center; font-size: 13px; }
+    .logo { width: 96px; height: 96px; border-radius: 50%; object-fit: contain; padding: 8px; box-sizing: border-box; background: #fff; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }
+    hr { border: none; border-top: 1px dashed #7C4A3A; margin: 12px 0; }
+    .item { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 6px 0; }
+    .item span:first-child { flex: 1; }
+    .item span:last-child { white-space: nowrap; }
+    .lembrete { background: #FDE8EF; border: 1px solid #F0BCCF; border-radius: 8px; padding: 8px; font-weight: 600; }
+    .nota { background: #F4FBFC; border-left: 4px solid #C2E5E9; padding: 8px; margin-top: 8px; }
+    a { color: #7C4A3A; font-weight: 600; text-decoration: none; }
+    .convite { font-size: 12px; margin: 10px 0 0; }
+    .redes { display: flex; justify-content: center; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin: 8px 0 0; }
+    .redes a { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; }
+    .redes svg { width: 40px; height: 40px; display: block; }
+    .qr { display: block; width: 220px; max-width: 100%; height: auto; margin: 12px auto; }
+    .chave-pix {
+      display: block; width: 100%; box-sizing: border-box; text-align: left;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px; line-height: 1.4; word-break: break-all; white-space: pre-wrap;
+      background: #F8FBFC; border: 1px dashed #7AC7D9; border-radius: 10px;
+      padding: 12px; margin: 8px 0; cursor: pointer; color: #1a4a56;
+    }
+    .chave-pix.copiado { border-color: #22c55e; background: #F0FDF4; color: #166534; }
+    .botao-copiar {
+      display: block; width: 100%; box-sizing: border-box; border: none; border-radius: 10px;
+      background: #009EE3; color: #fff; font-family: inherit; font-weight: 700;
+      font-size: 15px; padding: 12px; margin: 8px 0 4px; cursor: pointer;
+    }
+    .botao-copiar:active { opacity: 0.9; }
+"""
+
+ESTILO_COBRANCA = ESTILO_CUPOM + """
+    body { font-size: 12px; }
+    main { margin: 8px auto; padding: 10px; border-radius: 12px; }
+    h1 { font-size: 16px; margin: 4px 0 2px; }
+    .centro { font-size: 11px; }
+    .logo { width: 56px; height: 56px; border-width: 2px; }
+    hr { margin: 6px 0; }
+    .item { padding: 3px 0; font-size: 12px; }
+    .lembrete { padding: 6px; font-size: 11px; margin-top: 4px; }
+    .nota { padding: 6px; font-size: 11px; margin-top: 4px; }
+    .qr { width: 140px; margin: 6px auto; }
+    .chave-pix { font-size: 10px; padding: 8px; margin: 4px 0; }
+    .botao-copiar { font-size: 13px; padding: 8px; margin: 4px 0; }
+    .convite { font-size: 10px; margin: 6px 0 0; }
+    .redes { gap: 10px; margin: 4px 0 0; }
+    .redes svg { width: 28px; height: 28px; }
+    .redes a { font-size: 9px; }
+    @media print {
+      body { background: #fff; }
+      main { margin: 0; border: none; max-width: none; box-shadow: none; }
+    }
+"""
+
+
+def _bloco_itens_cupom(pedido: dict) -> tuple[str, str, str, str]:
     itens = "".join(
         f"<div class='item'><span>{escape(str(item['quantity']))}× {escape(item['productName'])}</span>"
         f"<span>{escape(dinheiro(item['quantity'] * item['unitPrice']))}</span></div>"
         for item in pedido["items"]
     )
-    partes = "".join(
-        f"<div>{escape(parte['forma'])}: {escape(dinheiro(parte['valor']))}</div>"
-        for parte in pedido.get("partes", [])
-    )
-    lembrete = (
-        f"<div class='lembrete'>{escape(pedido['lembrete'])}</div>"
-        if pedido.get("lembrete")
-        else "<div>Pagamento quitado. Nada pendente na entrega.</div>"
-    )
-    juros = f"<div class='nota'>{escape(pedido['juros'])}</div>" if pedido.get("juros") else ""
     taxa_servico = float(pedido.get("taxaServico") or 0)
     linha_taxa = (
         f"<div class='item'><span>Taxa de serviço (Mercado Pago)</span><span>{escape(dinheiro(taxa_servico))}</span></div>"
@@ -2069,6 +2659,21 @@ def pagina_cupom(pedido: dict, link: str) -> str:
             f"<div class='nota'>Corrida paga pela cliente: {escape(dinheiro(pedido['taxaControle']))}. "
             "Não entra neste total.</div>"
         )
+    return itens, linha_taxa, desconto, entrega
+
+
+def pagina_cupom(pedido: dict, link: str) -> str:
+    itens, linha_taxa, desconto, entrega = _bloco_itens_cupom(pedido)
+    partes = "".join(
+        f"<div>{escape(parte['forma'])}: {escape(dinheiro(parte['valor']))}</div>"
+        for parte in pedido.get("partes", [])
+    )
+    lembrete = (
+        f"<div class='lembrete'>{escape(pedido['lembrete'])}</div>"
+        if pedido.get("lembrete")
+        else "<div>Pagamento quitado. Nada pendente na entrega.</div>"
+    )
+    juros = f"<div class='nota'>{escape(pedido['juros'])}</div>" if pedido.get("juros") else ""
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -2076,24 +2681,7 @@ def pagina_cupom(pedido: dict, link: str) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cupom {escape(pedido['orderId'])} — Caminho dos Doces</title>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    body {{ margin: 0; background: #FFFBFC; color: #7C4A3A; font-family: Poppins, Verdana, sans-serif; overflow-y: auto; }}
-    main {{ max-width: 440px; margin: 24px auto; background: #fff; border: 1px solid #C5CEE6; border-radius: 16px; padding: 18px; }}
-    h1 {{ text-align: center; font-size: 20px; margin: 8px 0 4px; }}
-    .centro {{ text-align: center; font-size: 13px; }}
-    .logo {{ width: 96px; height: 96px; border-radius: 50%; object-fit: cover; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }}
-    hr {{ border: none; border-top: 1px dashed #7C4A3A; margin: 12px 0; }}
-    .item {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 6px 0; }}
-    .item span:first-child {{ flex: 1; }}
-    .item span:last-child {{ white-space: nowrap; }}
-    .lembrete {{ background: #FDE8EF; border: 1px solid #F0BCCF; border-radius: 8px; padding: 8px; font-weight: 600; }}
-    .nota {{ background: #F4FBFC; border-left: 4px solid #C2E5E9; padding: 8px; margin-top: 8px; }}
-    a {{ color: #7C4A3A; font-weight: 600; text-decoration: none; }}
-    .convite {{ font-size: 12px; margin: 10px 0 0; }}
-    .redes {{ display: flex; justify-content: center; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin: 8px 0 0; }}
-    .redes a {{ display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; }}
-    .redes svg {{ width: 40px; height: 40px; display: block; }}
-  </style>
+  <style>{ESTILO_CUPOM}</style>
 </head>
 <body>
   <main>
@@ -2124,6 +2712,145 @@ def pagina_cupom(pedido: dict, link: str) -> str:
 </html>"""
 
 
+def garantir_qr_parte(parte: dict, pedir_mp: bool = False) -> tuple[str, str]:
+    codigo = (parte.get("qrCode") or "").strip()
+    imagem = (parte.get("qrBase64") or "").strip()
+    if (not codigo or not imagem) and pedir_mp and parte.get("pagamentoId") and parte.get("mp") == "PIX":
+        try:
+            status, corpo = chamar_mp("GET", f"/v1/payments/{parte['pagamentoId']}", token_mp())
+            if status == 200:
+                qr = ((corpo.get("point_of_interaction") or {}).get("transaction_data") or {})
+                if qr.get("qr_code"):
+                    codigo = qr["qr_code"]
+                    parte["qrCode"] = codigo
+                if qr.get("qr_code_base64"):
+                    imagem = qr["qr_code_base64"]
+                    parte["qrBase64"] = imagem
+        except HTTPException:
+            pass
+    if codigo and not imagem:
+        try:
+            imagem = gerar_qr_pix_base64(codigo)
+            parte["qrBase64"] = imagem
+        except HTTPException:
+            imagem = ""
+    return codigo, imagem
+
+
+def pagina_cobranca_mp(pedido: dict, indice: int = 0) -> str:
+    partes = pedido.get("partes") or []
+    if indice < 0 or indice >= len(partes) or not partes[indice].get("mp"):
+        raise HTTPException(status_code=404, detail="Essa cobrança do Mercado Pago não existe.")
+    parte = partes[indice]
+    if parte.get("status") == "PAGO":
+        raise HTTPException(status_code=400, detail="Essa cobrança já foi paga.")
+    itens, linha_taxa, desconto, entrega = _bloco_itens_cupom(pedido)
+    valor = dinheiro(parte.get("valor") or pedido["total"])
+    forma = parte.get("forma") or "Mercado Pago"
+    tipo = parte.get("mp")
+    if tipo == "PIX":
+        codigo, imagem = garantir_qr_parte(parte, pedir_mp=True)
+        if not codigo:
+            raise HTTPException(status_code=400, detail="O Pix ainda não tem chave. Gere a cobrança de novo.")
+        titulo = "COBRANÇA PIX"
+        bloco_pagamento = f"""
+    <div class="centro"><strong>Pague com Pix</strong></div>
+    <div class="centro">Leia o QR Code no aplicativo do banco. Vale por 30 minutos.</div>
+    {"<img class='qr' alt='QR Code do Pix' src='data:image/png;base64," + escape(imagem) + "'>" if imagem else ""}
+    <div class="lembrete">Se o QR não for lido, toque no botão ou na chave abaixo para copiar o Pix.</div>
+    <button type="button" class="botao-copiar" id="botao-acao">Toque para copiar a chave Pix</button>
+    <button type="button" class="chave-pix" id="chave-acao" title="Toque para copiar">{escape(codigo)}</button>"""
+        script = f"""
+  <script>
+    const chave = {json.dumps(codigo)};
+    async function acaoCobranca() {{
+      try {{ await navigator.clipboard.writeText(chave); }}
+      catch (erro) {{
+        const area = document.createElement('textarea');
+        area.value = chave; document.body.appendChild(area); area.select();
+        document.execCommand('copy'); area.remove();
+      }}
+      const botao = document.getElementById('botao-acao');
+      const caixa = document.getElementById('chave-acao');
+      botao.textContent = 'Chave Pix copiada';
+      caixa.classList.add('copiado');
+      setTimeout(() => {{
+        botao.textContent = 'Toque para copiar a chave Pix';
+        caixa.classList.remove('copiado');
+      }}, 2500);
+    }}
+    document.getElementById('botao-acao').onclick = acaoCobranca;
+    document.getElementById('chave-acao').onclick = acaoCobranca;
+  </script>"""
+    else:
+        link = (parte.get("link") or "").strip()
+        if not link:
+            raise HTTPException(status_code=400, detail="O link de pagamento ainda não existe. Gere a cobrança de novo.")
+        tipo_cartao = "débito" if (parte.get("tipoMp") or "").upper() == "DEBITO" else "crédito"
+        titulo = f"COBRANÇA NO {escape(forma.upper())}"
+        bloco_pagamento = f"""
+    <div class="centro"><strong>Pague no {escape(forma)}</strong></div>
+    <div class="centro">Toque no botão para abrir o pagamento seguro do Mercado Pago ({escape(tipo_cartao)}).</div>
+    <div class="lembrete">O link vale por 24 horas. Se vencer, a loja gera outro sem refazer a venda.</div>
+    <a class="botao-copiar" id="botao-acao" href="{escape(link)}" target="_blank" rel="noopener">Toque para pagar agora</a>
+    <button type="button" class="chave-pix" id="chave-acao" title="Toque para copiar o link">{escape(link)}</button>"""
+        script = f"""
+  <script>
+    const chave = {json.dumps(link)};
+    async function acaoCobranca() {{
+      try {{ await navigator.clipboard.writeText(chave); }}
+      catch (erro) {{
+        const area = document.createElement('textarea');
+        area.value = chave; document.body.appendChild(area); area.select();
+        document.execCommand('copy'); area.remove();
+      }}
+      const caixa = document.getElementById('chave-acao');
+      caixa.classList.add('copiado');
+      setTimeout(() => caixa.classList.remove('copiado'), 2500);
+    }}
+    document.getElementById('chave-acao').onclick = acaoCobranca;
+  </script>"""
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cobrança {escape(pedido['orderId'])} — Caminho dos Doces</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>{ESTILO_COBRANCA}
+    a.botao-copiar {{ text-align: center; text-decoration: none; }}
+  </style>
+</head>
+<body>
+  <main>
+    <img class="logo" src="/static/logo.png" alt="Caminho dos Doces">
+    <h1>Caminho dos Doces</h1>
+    <div class="centro">{titulo}<br>CNPJ 46.415.117/0001-37<br>AR 05 Conjunto 01 casa 16<br>(61) 99442-9261</div>
+    <hr>
+    <div>{escape(pedido['orderId'])} · {escape(pedido['criadoEm'])}</div>
+    <div><strong>{escape(pedido['nome'])}</strong><br>{escape(telefone_exibicao(pedido['telefone']))}</div>
+    {entrega}
+    <hr>
+    {itens}
+    <div class="item"><span>Entrega</span><span>{escape(dinheiro(pedido['taxaEntrega']))}</span></div>
+    {desconto}
+    {linha_taxa}
+    <div class="item"><strong>Total a pagar</strong><strong>{escape(valor)}</strong></div>
+    <hr>
+    {bloco_pagamento}
+    <p class="centro">Documento sem valor fiscal · aguardando pagamento no Mercado Pago.</p>
+    <p class="centro convite">Toque nos ícones para conhecer nossas redes.</p>
+    <p class="redes">{links_redes_html()}</p>
+  </main>
+  {script}
+</body>
+</html>"""
+
+
+def pagina_cobranca_pix(pedido: dict, indice: int = 0) -> str:
+    return pagina_cobranca_mp(pedido, indice)
+
+
 def salvar_recibo(pedido: dict) -> str:
     quando = data_do_pedido(pedido)
     pasta = pasta_recibo(quando)
@@ -2139,6 +2866,61 @@ def salvar_recibo(pedido: dict) -> str:
 def cupom_pdf(order_id: str):
     caminho = gerar_pdf_cupom(order_id)
     return FileResponse(caminho, media_type="application/pdf", filename=f"Cupom-{order_id}.pdf")
+
+
+def caminho_pdf_cobranca(order_id: str, indice: int) -> str:
+    return os.path.join(RAIZ, "dados", "cupons", f"{order_id}-cobranca-{indice}.pdf")
+
+
+def gerar_pdf_cobranca_mp(order_id: str, indice: int = 0) -> str:
+    pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Essa venda não existe.")
+    pagina_cobranca_mp(pedido, indice)
+    salvar()
+    destino = caminho_pdf_cobranca(order_id, indice)
+    if os.path.exists(destino):
+        try:
+            os.remove(destino)
+        except OSError:
+            pass
+    porta = os.getenv("PORTA", "8090")
+    url = f"http://127.0.0.1:{porta}/c/{order_id}/cobranca?parte={indice}"
+    return gerar_pdf_da_pagina(url, destino, 9.8)
+
+
+def gerar_pdf_cobranca_pix(order_id: str, indice: int = 0) -> str:
+    return gerar_pdf_cobranca_mp(order_id, indice)
+
+
+def _html_erro_cobranca(detalhe: str, status: int = 404) -> HTMLResponse:
+    return HTMLResponse(
+        f"""<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cobrança</title>
+<style>body{{font-family:Verdana,sans-serif;background:#FFFBFC;color:#7C4A3A;padding:32px;text-align:center}}</style>
+</head><body><h1>{escape(detalhe)}</h1></body></html>""",
+        status_code=status,
+    )
+
+
+@app.get("/c/{order_id}/cobranca/pdf")
+@app.get("/c/{order_id}/pix/pdf")
+def cobranca_mp_pdf(order_id: str, parte: int = 0):
+    caminho = gerar_pdf_cobranca_mp(order_id, parte)
+    return FileResponse(caminho, media_type="application/pdf", filename=f"Cobranca-{order_id}.pdf")
+
+
+@app.get("/c/{order_id}/cobranca", response_class=HTMLResponse)
+@app.get("/c/{order_id}/pix", response_class=HTMLResponse)
+def cobranca_mp_publica(order_id: str, parte: int = 0):
+    pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
+    if not pedido:
+        return _html_erro_cobranca("Essa cobrança não existe.")
+    try:
+        return HTMLResponse(pagina_cobranca_mp(pedido, parte))
+    except HTTPException as erro:
+        return _html_erro_cobranca(str(erro.detail), erro.status_code)
 
 
 @app.get("/c/{order_id}", response_class=HTMLResponse)
@@ -2193,7 +2975,15 @@ def enviar_cardapio(payload: EnvioCardapio):
 
 @app.post("/api/whatsapp/abrir")
 def abrir_whatsapp(payload: WhatsAppAbrir):
-    return abrir_whatsapp_no_computador(payload.telefone, payload.texto, payload.pedido)
+    return abrir_whatsapp_no_computador(
+        payload.telefone,
+        payload.texto,
+        payload.pedido,
+        payload.imagem,
+        payload.pixCodigo,
+        payload.cobrancaOrderId,
+        payload.cobrancaParte,
+    )
 
 
 @app.post("/api/loja/abrir")
@@ -2317,12 +3107,22 @@ def organizar_cliente(cliente_id: str, payload: ClienteAgenda):
         raise HTTPException(status_code=400, detail="Informe o telefone.")
     nome = nome_e_sobrenome(payload.nome)
     cpf = cpf_formatado(payload.cpf)
+    email = email_valido(payload.email)
+    if payload.email.strip() and not email:
+        raise HTTPException(status_code=400, detail="E-mail inválido. Use um endereço completo, como nome@email.com.")
+    outro = achar_cliente(payload.telefone, exceto_id=cliente_id)
+    if outro:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Este telefone já está na agenda em {outro.get('nome') or 'outra cliente'}. Não pode repetir número.",
+        )
     for cliente in CLIENTES:
         if cliente["id"] != cliente_id:
             continue
         cliente["nome"] = nome
         cliente["telefone"] = telefone_exibicao(payload.telefone)
         cliente["cpf"] = cpf
+        cliente["email"] = email
         cliente["endereco"] = payload.endereco.strip()
         cliente["observacoes"] = payload.observacoes.strip()
         cliente["organizado"] = True
@@ -2331,6 +3131,16 @@ def organizar_cliente(cliente_id: str, payload: ClienteAgenda):
         salvar()
         return cliente
     raise HTTPException(status_code=404, detail="Essa cliente não está na agenda.")
+
+
+@app.delete("/api/clientes/{cliente_id}")
+def apagar_cliente(cliente_id: str):
+    antes = len(CLIENTES)
+    CLIENTES[:] = [cliente for cliente in CLIENTES if cliente.get("id") != cliente_id]
+    if len(CLIENTES) == antes:
+        raise HTTPException(status_code=404, detail="Essa cliente não está na agenda.")
+    salvar()
+    return {"ok": True, "id": cliente_id, "total": len(CLIENTES)}
 
 
 @app.post("/api/whatsapp/contatos")
@@ -2415,13 +3225,48 @@ def alterar_pagamento(order_id: str, payload: AlterarPagamento, request: Request
     pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
     if not pedido:
         raise HTTPException(status_code=404, detail="Essa venda não está no caixa.")
-    if any(parte.get("mp") for parte in pedido.get("partes") or []):
-        raise HTTPException(status_code=400, detail="Venda do Mercado Pago não troca a forma de pagamento. Cancele e faça de novo.")
+    partes = pedido.get("partes") or []
+    tem_mp = any(parte.get("mp") for parte in partes)
+    esperando_mp = pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO"
+    pago_mp = sum(float(p.get("valor") or 0) for p in partes if p.get("mp") and p.get("status") == "PAGO")
+    if tem_mp and pago_mp > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{dinheiro(pago_mp)} já caiu no Mercado Pago. "
+                "Devolva no app do Mercado Pago e depois cancele, ou continue pela cobrança."
+            ),
+        )
+    if tem_mp and not esperando_mp:
+        raise HTTPException(
+            status_code=400,
+            detail="Essa venda já entrou pelo Mercado Pago. Para corrigir, cancele e faça de novo.",
+        )
     if "valorCobrado" in pedido:
         base = float(pedido["valorCobrado"])
     else:
         base = round(float(pedido.get("subtotal") or 0) + float(pedido.get("taxaEntrega") or 0), 2)
     conta = fechar_pagamento(payload, base)
+    pedido.update({
+        "metodo": payload.pagamento,
+        "total": conta["total"],
+        "sinal": conta["sinal"],
+        "restante": conta["restante"],
+        "pagamento": conta["descricao"],
+        "partes": conta["partes"],
+        "statusPagamento": conta["statusPagamento"],
+        "lembrete": conta["lembrete"],
+        "juros": conta["juros"],
+        "taxaServico": 0.0,
+    })
+    if esperando_mp:
+        # Ainda não entrou no caixa: troca para pagamento na loja e libera a venda.
+        efetivar_venda(pedido)
+        return {
+            "pedido": pedido_publico(request, pedido),
+            "caixa": CAIXA,
+            "aviso": "Pagamento trocado para a loja. A venda entrou no caixa e foi para a cozinha.",
+        }
     antigo = round(
         sum(
             lancamento["valor"]
@@ -2453,17 +3298,6 @@ def alterar_pagamento(order_id: str, payload: AlterarPagamento, request: Request
             })
     CAIXA["saldo"] = round(CAIXA["saldo"] - antigo + conta["sinal"], 2)
     CAIXA["gavetaEm"] = ""
-    pedido.update({
-        "metodo": payload.pagamento,
-        "total": conta["total"],
-        "sinal": conta["sinal"],
-        "restante": conta["restante"],
-        "pagamento": conta["descricao"],
-        "partes": conta["partes"],
-        "statusPagamento": conta["statusPagamento"],
-        "lembrete": conta["lembrete"],
-        "juros": conta["juros"],
-    })
     salvar()
     return {"pedido": pedido_publico(request, pedido), "caixa": CAIXA}
 
@@ -2503,7 +3337,7 @@ def exigir_admin(request: Request) -> None:
     TOKENS_ADMIN[token] = time.time() + 12 * 3600
 
 
-def _percentual(valor, padrao: float) -> float:
+def _percentual(valor, padrao: float, casas: int = 2) -> float:
     if valor is None:
         valor = padrao
     numero = float(valor or 0)
@@ -2511,7 +3345,7 @@ def _percentual(valor, padrao: float) -> float:
         numero = 0
     if numero > 80:
         numero = 80
-    return round(numero, 2)
+    return round(numero, casas)
 
 
 def _reais(valor, padrao: float) -> float:
@@ -2523,9 +3357,9 @@ def _reais(valor, padrao: float) -> float:
 def conta_ifood(dados: dict | None = None) -> dict:
     dados = dados or {}
     bruto = round(max(float(dados.get("ifoodSaldo") or 0), 0), 2)
-    plano = dados.get("ifoodPlano") or "BASICO"
+    plano = dados.get("ifoodPlano") or "ENTREGA"
     if plano not in ("BASICO", "ENTREGA"):
-        plano = "BASICO"
+        plano = "ENTREGA"
     pagamento = dados.get("ifoodPagamento") or "APP"
     if pagamento not in ("APP", "ENTREGA"):
         pagamento = "APP"
@@ -2534,29 +3368,31 @@ def conta_ifood(dados: dict | None = None) -> dict:
         antecipacao = "NENHUMA"
     comissao_padrao = 23.0 if plano == "ENTREGA" else 12.0
     mensalidade_padrao = 150.0 if plano == "ENTREGA" else 110.0
-    comissao = _percentual(dados.get("ifoodComissao"), comissao_padrao)
-    taxa_pagamento = _percentual(dados.get("ifoodTaxaPagamento"), 3.2 if pagamento == "APP" else 0)
-    taxa_antecipacao = _percentual(dados.get("ifoodTaxaAntecipacao"), 0)
+    comissao = _percentual(dados.get("ifoodComissao"), comissao_padrao, 4)
+    taxa_pagamento = _percentual(dados.get("ifoodTaxaPagamento"), 3.2 if pagamento == "APP" else 0, 4)
+    taxa_antecipacao = _percentual(dados.get("ifoodTaxaAntecipacao"), 0, 4)
+    promocao_pct = _percentual(dados.get("ifoodPromocoesPct"), 0, 4)
     mensalidade = _reais(dados.get("ifoodMensalidade"), mensalidade_padrao)
     isencao = _reais(dados.get("ifoodIsencao"), 1800)
     pag_aplicada = taxa_pagamento if pagamento == "APP" else 0.0
     ant_aplicada = taxa_antecipacao if pagamento == "APP" else 0.0
-    total = round(comissao + pag_aplicada + ant_aplicada, 2)
-    estoura = total >= 100
-    juros = round(bruto * total / 100, 2) if bruto > 0 and not estoura else 0.0
+    taxa = round(comissao + pag_aplicada + ant_aplicada, 4)
+    taxa_com_promo = round(taxa + promocao_pct, 4)
+    estoura = taxa_com_promo >= 100
 
     def parte(percentual: float) -> float:
-        if estoura or total <= 0 or bruto <= 0:
+        if estoura or bruto <= 0 or percentual <= 0:
             return 0.0
         return round(bruto * percentual / 100, 2)
 
     comissao_rs = parte(comissao)
     pag_rs = parte(pag_aplicada)
     ant_rs = parte(ant_aplicada)
-    comissao_rs = round(comissao_rs + (juros - (comissao_rs + pag_rs + ant_rs)), 2)
+    promocoes = parte(promocao_pct)
+    juros = round(comissao_rs + pag_rs + ant_rs, 2)
     isenta = bruto <= isencao
     mensalidade_cobrada = 0.0 if isenta else mensalidade
-    liquido = round(bruto - juros - mensalidade_cobrada, 2)
+    liquido = round(bruto - juros - mensalidade_cobrada - promocoes, 2)
     return {
         "saldo": bruto,
         "plano": plano,
@@ -2567,7 +3403,9 @@ def conta_ifood(dados: dict | None = None) -> dict:
         "taxaAntecipacao": taxa_antecipacao,
         "pagAplicada": pag_aplicada,
         "antAplicada": ant_aplicada,
-        "taxa": total,
+        "taxa": taxa,
+        "taxaComPromo": taxa_com_promo,
+        "promocaoPct": promocao_pct,
         "bruto": bruto,
         "juros": juros,
         "comissaoRs": comissao_rs,
@@ -2577,6 +3415,7 @@ def conta_ifood(dados: dict | None = None) -> dict:
         "isencao": isencao,
         "isenta": isenta,
         "mensalidadeCobrada": mensalidade_cobrada,
+        "promocoes": promocoes,
         "liquido": liquido,
         "estoura": estoura,
     }
@@ -2670,6 +3509,7 @@ def admin_publico() -> dict:
         "ifoodTaxaPagamento": ifood["taxaPagamento"],
         "ifoodMensalidade": ifood["mensalidade"],
         "ifoodIsencao": ifood["isencao"],
+        "ifoodPromocoesPct": ifood["promocaoPct"],
         "ifoodAntecipacao": ifood["antecipacao"],
         "ifoodTaxaAntecipacao": ifood["taxaAntecipacao"],
         "noventaSaldo": float(ADMIN.get("noventaSaldo") or 0),
@@ -3957,6 +4797,97 @@ def gravar_casa(payload: PlanoCasa, request: Request):
     return {"ok": True, "casa": casa_publica(), "conta": conta}
 
 
+CATEGORIAS_ALMOX = {
+    "SECOS": "Secos e graduados",
+    "FRIO": "Refrigerados e congelados",
+    "ADITIVOS": "Aromatizantes e corantes",
+    "EMBALAGENS": "Embalagens e descartáveis",
+}
+
+INFERIR_CATEGORIA_ALMOX = (
+    ("EMBALAGENS", ("embalagem", "forminha", "caixa", "saco", "cake board", "papel", "filme", "fita", "etiqueta", "adesivo", "tabuleiro")),
+    ("FRIO", ("leite", "creme", "manteiga", "margarina", "ovo", "cream cheese", "mascarpone", "ricota", "polpa", "fruta", "morango", "chantilly", "queijo")),
+    ("ADITIVOS", ("baunilha", "essência", "extrato", "corante", "óleo", "desmoldante", "gelatina", "agar")),
+    ("SECOS", ("farinha", "açúcar", "amido", "fermento", "bicarbonato", "cacau", "chocolate", "castanha", "amêndoa", "noz", "granulado", "confeito", "goma")),
+)
+
+
+def parse_data_almox(texto: str):
+    limpo = (texto or "").strip()[:10]
+    if not limpo:
+        return None
+    for formato in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(limpo, formato).date()
+        except ValueError:
+            continue
+    return None
+
+
+def data_almox_texto(valor) -> str:
+    if not valor:
+        return ""
+    if hasattr(valor, "strftime"):
+        return valor.strftime("%d/%m/%Y")
+    parsed = parse_data_almox(str(valor))
+    return parsed.strftime("%d/%m/%Y") if parsed else ""
+
+
+def inferir_categoria_almox(nome: str) -> str:
+    chave = (nome or "").casefold()
+    for categoria, palavras in INFERIR_CATEGORIA_ALMOX:
+        if any(palavra in chave for palavra in palavras):
+            return categoria
+    return "SECOS"
+
+
+def categoria_almox(valor: str, nome: str = "") -> str:
+    chave = (valor or "").strip().upper()
+    if chave in CATEGORIAS_ALMOX:
+        return chave
+    return inferir_categoria_almox(nome)
+
+
+def status_validade_almox(item: dict) -> dict:
+    validade = parse_data_almox(item.get("validade") or "")
+    if not validade:
+        return {"validade": "", "statusValidade": "", "diasParaVencer": None}
+    hoje = datetime.now().date()
+    dias = (validade - hoje).days
+    if dias < 0:
+        status = "VENCIDO"
+    elif dias <= 7:
+        status = "VENCE_LOGO"
+    else:
+        status = "OK"
+    return {
+        "validade": data_almox_texto(validade),
+        "statusValidade": status,
+        "diasParaVencer": dias,
+    }
+
+
+def item_almox_publico(item: dict) -> dict:
+    copia = dict(item)
+    categoria = categoria_almox(copia.get("categoria") or "", copia.get("item") or "")
+    copia["categoria"] = categoria
+    copia["categoriaNome"] = CATEGORIAS_ALMOX[categoria]
+    copia["abertoEm"] = data_almox_texto(copia.get("abertoEm") or "")
+    copia.update(status_validade_almox(copia))
+    return copia
+
+
+def ordenar_almox_pvps(itens: list[dict]) -> list[dict]:
+    def chave(item: dict):
+        validade = parse_data_almox(item.get("validade") or "")
+        return (
+            0 if validade else 1,
+            validade or datetime.max.date(),
+            item.get("criadoEm") or "",
+        )
+    return sorted(itens, key=chave)
+
+
 class NovoMantimento(BaseModel):
     cupom: str
     item: str
@@ -3964,6 +4895,9 @@ class NovoMantimento(BaseModel):
     quantidade: float
     unidade: str = "g"
     uso: float
+    categoria: str = ""
+    validade: str = ""
+    abertoEm: str = ""
 
 
 class Fornada(BaseModel):
@@ -4023,7 +4957,11 @@ def registrar_fornada(payload: Fornada):
     }
     COZINHA.append(registro)
     salvar()
-    return {"fornada": registro, "almoxarifado": list(reversed(ALMOXARIFADO)), "cozinha": list(reversed(COZINHA))}
+    return {
+        "fornada": registro,
+        "almoxarifado": [item_almox_publico(item) for item in ordenar_almox_pvps(ALMOXARIFADO)],
+        "cozinha": list(reversed(COZINHA)),
+    }
 
 
 @app.delete("/api/cozinha/{fornada_id}")
@@ -4041,12 +4979,16 @@ def apagar_fornada(fornada_id: str):
             usos.remove(quando)
     COZINHA[:] = [item for item in COZINHA if item["id"] != fornada_id]
     salvar()
-    return {"ok": True, "almoxarifado": list(reversed(ALMOXARIFADO)), "cozinha": list(reversed(COZINHA))}
+    return {
+        "ok": True,
+        "almoxarifado": [item_almox_publico(item) for item in ordenar_almox_pvps(ALMOXARIFADO)],
+        "cozinha": list(reversed(COZINHA)),
+    }
 
 
 @app.get("/api/almoxarifado")
 def listar_almoxarifado():
-    return list(reversed(ALMOXARIFADO))
+    return [item_almox_publico(item) for item in ordenar_almox_pvps(ALMOXARIFADO)]
 
 
 @app.post("/api/almoxarifado", status_code=201)
@@ -4059,6 +5001,12 @@ def criar_mantimento(payload: NovoMantimento):
         raise HTTPException(status_code=400, detail="Informe quanto pagou, quanto comprou e quanto entra numa receita.")
     if payload.uso > payload.quantidade:
         raise HTTPException(status_code=400, detail="O que entra numa receita não pode passar da quantidade comprada.")
+    validade = parse_data_almox(payload.validade)
+    if payload.validade.strip() and not validade:
+        raise HTTPException(status_code=400, detail="A validade precisa ser uma data válida.")
+    aberto = parse_data_almox(payload.abertoEm) or datetime.now().date()
+    if payload.abertoEm.strip() and not parse_data_almox(payload.abertoEm):
+        raise HTTPException(status_code=400, detail="A data de abertura precisa ser uma data válida.")
     rendimento = math.floor(payload.quantidade / payload.uso)
     if rendimento < 1:
         raise HTTPException(status_code=400, detail="Essa quantidade não completa nem uma receita.")
@@ -4068,6 +5016,7 @@ def criar_mantimento(payload: NovoMantimento):
         "id": f"ALM-{uuid.uuid4().hex[:6].upper()}",
         "cupom": cupom,
         "item": item,
+        "categoria": categoria_almox(payload.categoria, item),
         "valor": round(payload.valor, 2),
         "quantidade": payload.quantidade,
         "unidade": payload.unidade.strip() or "g",
@@ -4075,12 +5024,14 @@ def criar_mantimento(payload: NovoMantimento):
         "rendimento": rendimento,
         "sobra": sobra,
         "custoPorcao": custo,
+        "validade": data_almox_texto(validade),
+        "abertoEm": data_almox_texto(aberto),
         "usos": [],
         "criadoEm": agora_texto(),
     }
     ALMOXARIFADO.append(registro)
     salvar()
-    return registro
+    return item_almox_publico(registro)
 
 
 @app.post("/api/almoxarifado/{item_id}/usar")
@@ -4092,7 +5043,7 @@ def usar_mantimento(item_id: str):
         raise HTTPException(status_code=400, detail="Esse mantimento já foi todo usado.")
     item.setdefault("usos", []).append(agora_texto())
     salvar()
-    return item
+    return item_almox_publico(item)
 
 
 @app.delete("/api/almoxarifado/{item_id}")
@@ -4124,12 +5075,13 @@ class DadosBanco(BaseModel):
     ifoodSaldo: float = 0
     ifoodForma: str = "PIX"
     ifoodTaxa: float = 0
-    ifoodPlano: str = "BASICO"
+    ifoodPlano: str = "ENTREGA"
     ifoodPagamento: str = "APP"
-    ifoodComissao: float = 12
+    ifoodComissao: float = 23
     ifoodTaxaPagamento: float = 3.2
-    ifoodMensalidade: float = 110
+    ifoodMensalidade: float = 150
     ifoodIsencao: float = 1800
+    ifoodPromocoesPct: float = 0
     ifoodAntecipacao: str = "NENHUMA"
     ifoodTaxaAntecipacao: float = 0
     noventaSaldo: float = 0
@@ -4150,13 +5102,6 @@ class DadosBanco(BaseModel):
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
-
-
-def email_valido(texto: str) -> str:
-    email = (texto or "").strip().lower()
-    if "@" not in email or "." not in email.split("@")[-1] or " " in email:
-        return ""
-    return email
 
 
 def falha_de_senha(request: Request) -> None:
@@ -4501,12 +5446,12 @@ def gravar_admin(payload: DadosBanco, request: Request):
         raise HTTPException(status_code=400, detail="O pagamento do iFood é pelo aplicativo ou na entrega.")
     if payload.ifoodAntecipacao not in ("NENHUMA", "SEMANAL", "SEMANAL_DIGITAL", "SOB_DEMANDA"):
         raise HTTPException(status_code=400, detail="A antecipação do iFood é 30 dias, semanal, Conta Digital ou sob demanda.")
-    for percentual in (payload.ifoodComissao, payload.ifoodTaxaPagamento, payload.ifoodTaxaAntecipacao):
+    for percentual in (payload.ifoodComissao, payload.ifoodTaxaPagamento, payload.ifoodTaxaAntecipacao, payload.ifoodPromocoesPct):
         if percentual < 0 or percentual > 80:
             raise HTTPException(status_code=400, detail="Cada taxa do iFood fica entre 0 e 80 por cento.")
     pag_aplicada = payload.ifoodTaxaPagamento if payload.ifoodPagamento == "APP" else 0
     ant_aplicada = payload.ifoodTaxaAntecipacao if payload.ifoodPagamento == "APP" else 0
-    if payload.ifoodComissao + pag_aplicada + ant_aplicada >= 100:
+    if payload.ifoodComissao + pag_aplicada + ant_aplicada + payload.ifoodPromocoesPct >= 100:
         raise HTTPException(status_code=400, detail="A soma das taxas do iFood precisa ficar abaixo de 100 por cento.")
     if payload.noventaPlano not in ("PARCEIRA", "PROPRIA"):
         raise HTTPException(status_code=400, detail="O plano do 99Food é entrega da 99 ou entrega da loja.")
@@ -4536,6 +5481,9 @@ def gravar_admin(payload: DadosBanco, request: Request):
     ADMIN["ifoodTaxaPagamento"] = round(payload.ifoodTaxaPagamento, 2)
     ADMIN["ifoodMensalidade"] = round(payload.ifoodMensalidade, 2)
     ADMIN["ifoodIsencao"] = round(payload.ifoodIsencao, 2)
+    ADMIN["ifoodPromocoesPct"] = round(payload.ifoodPromocoesPct, 4)
+    ADMIN.pop("ifoodPromocoes", None)
+    ADMIN.pop("ifoodTaxasExtrato", None)
     ADMIN["ifoodAntecipacao"] = payload.ifoodAntecipacao
     ADMIN["ifoodTaxaAntecipacao"] = round(payload.ifoodTaxaAntecipacao, 2)
     ADMIN["noventaSaldo"] = round(payload.noventaSaldo, 2)
@@ -4575,6 +5523,53 @@ def trocar_senha(payload: TrocaSenha, request: Request):
     return {"ok": True}
 
 
+class LogoSalvo(BaseModel):
+    imagem: str = ""
+
+
+@app.get("/api/admin/logo")
+def ver_logo(request: Request):
+    exigir_admin(request)
+    return logo_publico()
+
+
+@app.post("/api/admin/logo/ajustar")
+def ajustar_logo_atual(request: Request):
+    exigir_admin(request)
+    if not os.path.isfile(CAMINHO_LOGO):
+        raise HTTPException(status_code=404, detail="Ainda não há logo no PDV.")
+    ajustar_logo(CAMINHO_LOGO, CAMINHO_LOGO)
+    return {"ok": True, "mensagem": "Logo ajustado: cabe no círculo sem cortar nem estourar.", **logo_publico()}
+
+
+@app.post("/api/admin/logo")
+def salvar_logo(payload: LogoSalvo, request: Request):
+    exigir_admin(request)
+    imagem = (payload.imagem or "").strip()
+    if not imagem.startswith("data:image"):
+        raise HTTPException(status_code=400, detail="Escolha uma imagem do logo (PNG ou JPG).")
+    if len(imagem) > 6_000_000:
+        raise HTTPException(status_code=400, detail="A imagem do logo está grande demais. Use até cerca de 4 MB.")
+    ajustar_logo(imagem, CAMINHO_LOGO)
+    return {"ok": True, "mensagem": "Logo guardado e ajustado para não estourar na tela nem no cupom.", **logo_publico()}
+
+
+def valor_liquido_caixa_pedido(order_id: str) -> float:
+    entradas = sum(
+        float(lancamento.get("valor") or 0)
+        for lancamento in LIVRO_CAIXA
+        if lancamento.get("orderId") == order_id and lancamento.get("tipo") == "ENTRADA"
+    )
+    saidas = sum(
+        float(lancamento.get("valor") or 0)
+        for lancamento in LIVRO_CAIXA
+        if lancamento.get("orderId") == order_id
+        and lancamento.get("tipo") == "SAIDA"
+        and lancamento.get("categoria") in ("CANCELAMENTO", "ESTORNO_MP")
+    )
+    return round(entradas - saidas, 2)
+
+
 @app.post("/api/pedidos/{order_id}/cancelar")
 def cancelar_pedido(order_id: str, payload: CancelamentoVenda):
     motivo = payload.motivo.strip()
@@ -4583,21 +5578,14 @@ def cancelar_pedido(order_id: str, payload: CancelamentoVenda):
     pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
     if not pedido:
         raise HTTPException(status_code=404, detail="Essa venda não está no caixa.")
-    valor = round(
-        sum(
-            lancamento["valor"]
-            for lancamento in LIVRO_CAIXA
-            if lancamento.get("orderId") == order_id and lancamento.get("tipo") == "ENTRADA"
-        ),
-        2,
-    )
+    valor = valor_liquido_caixa_pedido(order_id)
     PEDIDOS[:] = [item for item in PEDIDOS if item["orderId"] != order_id]
     LIVRO_CAIXA[:] = [
         lancamento for lancamento in LIVRO_CAIXA
         if not (lancamento.get("orderId") == order_id and lancamento.get("tipo") == "RESULTADO")
     ]
     esperava = pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO"
-    if not esperava:
+    if not esperava and valor > 0:
         CAIXA["saldo"] = round(CAIXA["saldo"] - valor, 2)
         CAIXA["gavetaEm"] = ""
         LIVRO_CAIXA.append({
@@ -4611,13 +5599,52 @@ def cancelar_pedido(order_id: str, payload: CancelamentoVenda):
             "criadoEm": agora_texto(),
         })
     pedido["cozinhaStatus"] = "CANCELADO"
+    aguardando_estorno = 0.0
+    ja_estornado = 0.0
+    for parte in pedido.get("partes") or []:
+        if not parte.get("mp") or not parte.get("pagamentoId"):
+            continue
+        if parte.get("status") == "ESTORNADO":
+            ja_estornado += float(parte.get("valor") or 0)
+            continue
+        if parte.get("status") != "PAGO":
+            continue
+        try:
+            token = token_mp()
+            status, corpo = chamar_mp("GET", f"/v1/payments/{parte['pagamentoId']}", token)
+            if status == 200 and (corpo.get("status") or "") in STATUS_ESTORNO_MP:
+                registrar_estorno_mp(
+                    order_id,
+                    pedido.get("nome") or "",
+                    parte,
+                    corpo.get("status") or "refunded",
+                    origem="cancelamento",
+                )
+                ja_estornado += float(parte.get("valor") or 0)
+                continue
+        except HTTPException:
+            pass
+        MP_VIGILANCIA.append({
+            "orderId": order_id,
+            "nome": pedido.get("nome") or "",
+            "pagamentoId": str(parte["pagamentoId"]),
+            "valor": round(float(parte.get("valor") or 0), 2),
+            "forma": parte.get("forma") or "Mercado Pago",
+            "motivoCancelamento": motivo,
+            "canceladoEm": agora_texto(),
+            "status": "AGUARDANDO_ESTORNO",
+        })
+        aguardando_estorno += float(parte.get("valor") or 0)
     salvar()
-    pago_mp = sum(float(p.get("valor") or 0) for p in pedido.get("partes") or [] if p.get("mp") and p.get("status") == "PAGO")
-    aviso_mp = (
-        f"{dinheiro(pago_mp)} já caiu no Mercado Pago. Devolva à cliente pelo painel do Mercado Pago."
-        if pago_mp > 0
-        else ""
-    )
+    if aguardando_estorno > 0:
+        aviso_mp = (
+            f"{dinheiro(aguardando_estorno)} já caiu no Mercado Pago. "
+            "Devolva no app do Mercado Pago — o PDV registra sozinho quando o estorno aparecer."
+        )
+    elif ja_estornado > 0:
+        aviso_mp = f"{dinheiro(ja_estornado)} já estava estornado no Mercado Pago e ficou registrado no PDV."
+    else:
+        aviso_mp = ""
     return {"caixa": CAIXA, "orderId": order_id, "motivo": motivo, "avisoMercadoPago": aviso_mp}
 
 
@@ -4657,6 +5684,10 @@ def marcar_pedido_pronto(order_id: str, request: Request):
         pedido["cozinhaStatus"] = "PRONTO"
         pedido["prontoEm"] = agora_texto()
         pedido["avisoPronto"] = textos
+        if pedido.get("ifoodId"):
+            avisar_pronto_ifood(pedido)
+            if pedido.get("ifoodTipo") == "DELIVERY" and (ADMIN.get("ifoodPlano") or "BASICO") == "BASICO":
+                despachar_ifood(pedido)
         salvar()
     return {"pedido": pedido_publico(request, pedido), **textos}
 
@@ -4865,7 +5896,9 @@ STATUS_PIX = {
     "rejected": "O Mercado Pago recusou o Pix.",
     "cancelled": "O Pix venceu ou foi cancelado sem pagamento.",
     "refunded": "O Pix foi devolvido à cliente.",
+    "charged_back": "A cliente contestou e o valor voltou (chargeback).",
 }
+STATUS_ESTORNO_MP = {"refunded", "charged_back"}
 
 
 def ler_mp() -> dict:
@@ -4936,7 +5969,14 @@ def motivo_mp(corpo: dict) -> str:
 def conta_mp(token: str) -> dict:
     status, corpo = chamar_mp("GET", "/users/me", token)
     if status in (401, 403):
-        raise HTTPException(status_code=400, detail="O Mercado Pago não aceitou essa chave. Copie o Access Token de novo.")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "O Mercado Pago não aceitou essa chave. "
+                "Confira se copiou o Access Token de produção (não a Public Key, nem o Client Secret). "
+                "Ele é bem longo e começa com APP_USR-. Copie de novo em Credenciais de produção."
+            ),
+        )
     if status != 200:
         raise HTTPException(status_code=502, detail=f"O Mercado Pago respondeu: {motivo_mp(corpo)}")
     return {
@@ -5020,9 +6060,24 @@ def ver_mercadopago(request: Request):
 @app.post("/api/mercadopago/chave")
 def conectar_por_chave(payload: ChaveMp, request: Request):
     exigir_admin(request)
-    token = payload.accessToken.strip()
-    if not re.fullmatch(r"(APP_USR|TEST)-[A-Za-z0-9-]{20,}", token):
-        raise HTTPException(status_code=400, detail="Essa chave não parece um Access Token. Ele começa com APP_USR- (ou TEST- para teste).")
+    token = payload.accessToken.strip().strip('"').strip("'")
+    if re.fullmatch(r"(APP_USR|TEST)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", token):
+        raise HTTPException(
+            status_code=400,
+            detail="Isso é a Public Key. O PDV precisa do Access Token (o outro, mais longo, na mesma tela de Credenciais de produção).",
+        )
+    if token.isdigit() or re.fullmatch(r"\d{6,}", token):
+        raise HTTPException(status_code=400, detail="Isso é o Client ID (só número). O PDV precisa do Access Token.")
+    if not re.fullmatch(r"(APP_USR|TEST)-[A-Za-z0-9_-]{20,}", token):
+        raise HTTPException(
+            status_code=400,
+            detail="Essa chave não parece um Access Token. Em Credenciais de produção, copie o Access Token — começa com APP_USR- e é bem longo.",
+        )
+    if len(token) < 40:
+        raise HTTPException(
+            status_code=400,
+            detail="Essa chave está curta demais. Copie o Access Token inteiro (não a Public Key).",
+        )
     conta = conta_mp(token)
     dados = ler_mp()
     for campo in ("refreshToken", "expiraEm"):
@@ -5249,6 +6304,16 @@ def criar_pix_parte(pedido: dict, indice: int, parte: dict, token: str) -> dict:
     parte["pagamentoId"] = str(corpo["id"])
     parte["expiraEm"] = corpo.get("date_of_expiration") or validade
     parte["statusMp"] = corpo.get("status") or "pending"
+    qr = ((corpo.get("point_of_interaction") or {}).get("transaction_data") or {})
+    if qr.get("qr_code"):
+        parte["qrCode"] = qr["qr_code"]
+    if qr.get("qr_code_base64"):
+        parte["qrBase64"] = qr["qr_code_base64"]
+    elif parte.get("qrCode"):
+        try:
+            parte["qrBase64"] = gerar_qr_pix_base64(parte["qrCode"])
+        except HTTPException:
+            pass
     return corpo
 
 
@@ -5291,20 +6356,116 @@ def criar_link_parte(pedido: dict, indice: int, parte: dict, token: str) -> None
     parte["expiraEm"] = vence.isoformat(timespec="minutes")
 
 
+def ja_registrado_estorno(pagamento_id: str) -> bool:
+    chave = str(pagamento_id or "")
+    if not chave:
+        return False
+    return any(str(item.get("pagamentoId") or "") == chave for item in ESTORNOS)
+
+
+def avisar_dona_estorno_mp(registro: dict) -> None:
+    try:
+        texto = (
+            f"Estorno confirmado no Mercado Pago.\n"
+            f"Pedido {registro.get('orderId')}\n"
+            f"Cliente: {registro.get('nome')}\n"
+            f"Valor: {dinheiro(registro.get('valor') or 0)}\n"
+            f"Forma: {registro.get('forma')}\n"
+            f"Registrado no PDV em {registro.get('detectadoEm')} para prova."
+        )
+        aba = garantir_whatsapp("https://web.whatsapp.com/")
+        enviar_texto_no_whatsapp(aba, WHATSAPP_DONA, texto)
+    except Exception as erro:
+        print("aviso estorno MP:", erro, flush=True)
+
+
+def registrar_estorno_mp(
+    order_id: str,
+    nome: str,
+    parte: dict,
+    status_mp: str,
+    origem: str = "pedido",
+) -> dict | None:
+    pag_id = str(parte.get("pagamentoId") or "")
+    if not pag_id or ja_registrado_estorno(pag_id):
+        if pag_id and parte.get("status") != "ESTORNADO":
+            parte["status"] = "ESTORNADO"
+            parte["statusMp"] = status_mp
+            parte["estornadoEm"] = parte.get("estornadoEm") or agora_texto()
+        return None
+    valor = round(float(parte.get("valor") or 0), 2)
+    agora = agora_texto()
+    registro = {
+        "id": f"ES-{uuid.uuid4().hex[:8].upper()}",
+        "orderId": order_id,
+        "nome": nome,
+        "pagamentoId": pag_id,
+        "forma": parte.get("forma") or "Mercado Pago",
+        "valor": valor,
+        "statusMp": status_mp,
+        "detectadoEm": agora,
+        "origem": origem,
+        "avisoPendente": True,
+    }
+    parte["status"] = "ESTORNADO"
+    parte["statusMp"] = status_mp
+    parte["estornadoEm"] = agora
+    parte["estornoId"] = registro["id"]
+    liquido = valor_liquido_caixa_pedido(order_id)
+    valor_saida = round(min(valor, liquido), 2) if liquido > 0 else 0.0
+    if valor_saida > 0:
+        CAIXA["saldo"] = round(CAIXA["saldo"] - valor_saida, 2)
+        CAIXA["gavetaEm"] = ""
+        LIVRO_CAIXA.append({
+            "id": f"CX-{uuid.uuid4().hex[:6].upper()}",
+            "orderId": order_id,
+            "descricao": f"Estorno Mercado Pago {order_id} — {nome}",
+            "tipo": "SAIDA",
+            "categoria": "ESTORNO_MP",
+            "valor": valor_saida,
+            "motivo": f"Devolução confirmada no Mercado Pago ({status_mp})",
+            "pagamentoId": pag_id,
+            "estornoId": registro["id"],
+            "criadoEm": agora,
+        })
+        registro["lancamentoCaixa"] = valor_saida
+    else:
+        registro["lancamentoCaixa"] = 0.0
+        registro["nota"] = "Caixa já estava ajustado (cancelamento ou estorno anterior)."
+    MP_VIGILANCIA[:] = [item for item in MP_VIGILANCIA if str(item.get("pagamentoId") or "") != pag_id]
+    ESTORNOS.append(registro)
+    pedido = next((item for item in PEDIDOS if item["orderId"] == order_id), None)
+    if pedido:
+        pedido["estornoMercadoPagoEm"] = agora
+        pedido["avisoEstornoPendente"] = True
+    salvar()
+    threading.Thread(target=avisar_dona_estorno_mp, args=(dict(registro),), daemon=True).start()
+    return registro
+
+
 def conferir_parte_mp(pedido: dict, indice: int, parte: dict, token: str) -> dict:
     referencia = referencia_parte(pedido["orderId"], indice)
-    if parte["mp"] == "PIX":
-        if not parte.get("pagamentoId"):
-            return {}
+    if parte.get("pagamentoId"):
         status, corpo = chamar_mp("GET", f"/v1/payments/{parte['pagamentoId']}", token)
-        if status != 200 or str(corpo.get("external_reference") or "") != referencia:
+        if status != 200:
+            return {}
+        ext = str(corpo.get("external_reference") or "")
+        if parte.get("mp") == "PIX" and ext and ext != referencia:
             return {}
         parte["statusMp"] = corpo.get("status") or parte.get("statusMp")
-        if parte["statusMp"] == "approved":
+        if parte["statusMp"] in STATUS_ESTORNO_MP:
+            parte["status"] = "ESTORNADO"
+        elif parte["statusMp"] == "approved":
             parte["status"] = "PAGO"
-        elif parte["statusMp"] in ("cancelled", "rejected"):
+        elif (
+            parte.get("mp") == "PIX"
+            and parte["statusMp"] in ("cancelled", "rejected")
+            and parte.get("status") not in ("PAGO", "ESTORNADO")
+        ):
             parte.pop("pagamentoId", None)
         return corpo
+    if parte["mp"] == "PIX":
+        return {}
     status, corpo = chamar_mp(
         "GET",
         "/v1/payments/search?" + urlencode({"external_reference": referencia, "sort": "date_created", "criteria": "desc"}),
@@ -5314,16 +6475,24 @@ def conferir_parte_mp(pedido: dict, indice: int, parte: dict, token: str) -> dic
     for pagamento in resultados or []:
         if str(pagamento.get("external_reference") or "") != referencia:
             continue
-        if pagamento.get("status") == "approved":
+        st = pagamento.get("status") or ""
+        if st in STATUS_ESTORNO_MP:
+            parte["status"] = "ESTORNADO"
+            parte["pagamentoId"] = str(pagamento.get("id") or "")
+            parte["statusMp"] = st
+            break
+        if st == "approved":
             parte["status"] = "PAGO"
             parte["pagamentoId"] = str(pagamento.get("id") or "")
             parte["statusMp"] = "approved"
             break
-        parte["statusMp"] = pagamento.get("status") or parte.get("statusMp")
+        parte["statusMp"] = st or parte.get("statusMp")
     return {}
 
 
 def texto_parte_mp(parte: dict) -> str:
+    if parte.get("status") == "ESTORNADO":
+        return "Estorno confirmado no Mercado Pago."
     if parte.get("status") == "PAGO":
         return "Pago no Mercado Pago."
     if parte["mp"] == "PIX" and not parte.get("pagamentoId"):
@@ -5340,6 +6509,18 @@ def estado_cobranca(request: Request, pedido: dict, dados_pix: dict[int, dict], 
             continue
         pago = parte.get("status") == "PAGO"
         qr = {} if pago else ((dados_pix.get(indice) or {}).get("point_of_interaction") or {}).get("transaction_data") or {}
+        qr_code = "" if pago else (qr.get("qr_code") or parte.get("qrCode") or "")
+        qr_b64 = "" if pago else (qr.get("qr_code_base64") or parte.get("qrBase64") or "")
+        if qr_code and not pago:
+            parte["qrCode"] = qr_code
+        if qr_b64 and not pago:
+            parte["qrBase64"] = qr_b64
+        elif qr_code and not pago and not qr_b64:
+            try:
+                qr_b64 = gerar_qr_pix_base64(qr_code)
+                parte["qrBase64"] = qr_b64
+            except HTTPException:
+                qr_b64 = ""
         partes.append({
             "indice": indice,
             "forma": parte["forma"],
@@ -5348,14 +6529,16 @@ def estado_cobranca(request: Request, pedido: dict, dados_pix: dict[int, dict], 
             "taxaServico": parte.get("taxaServico", 0.0),
             "pago": pago,
             "statusTexto": texto_parte_mp(parte),
-            "qrCode": qr.get("qr_code") or "",
-            "qrBase64": qr.get("qr_code_base64") or "",
+            "qrCode": qr_code,
+            "qrBase64": qr_b64,
             "link": "" if pago else parte.get("link") or "",
         })
+    pendente = bool(pedido.get("avisoPagamentoPendente"))
     return {
         "orderId": pedido["orderId"],
         "aguardando": pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO",
-        "efetivouAgora": efetivou,
+        "efetivouAgora": efetivou or pendente,
+        "avisoPagamentoPendente": pendente,
         "partes": partes,
         "pedido": pedido_publico(request, pedido),
     }
@@ -5379,19 +6562,79 @@ def link_vencido(parte: dict) -> bool:
         return False
 
 
+def avisar_dona_pagamento_mp(pedido: dict) -> None:
+    try:
+        texto = (
+            f"Pagamento confirmado no Mercado Pago.\n"
+            f"Pedido {pedido.get('orderId')}\n"
+            f"Cliente: {pedido.get('nome')}\n"
+            f"Valor: {dinheiro(pedido.get('sinal') or pedido.get('total') or 0)}\n"
+            f"Entrou no caixa e foi para a cozinha."
+        )
+        aba = garantir_whatsapp("https://web.whatsapp.com/")
+        enviar_texto_no_whatsapp(aba, WHATSAPP_DONA, texto)
+    except Exception as erro:
+        print("aviso pagamento MP:", erro, flush=True)
+
+
+def conferir_vigilancia_mp(token: str) -> list[dict]:
+    novos: list[dict] = []
+    for item in list(MP_VIGILANCIA):
+        pag_id = str(item.get("pagamentoId") or "")
+        if not pag_id:
+            continue
+        status, corpo = chamar_mp("GET", f"/v1/payments/{pag_id}", token)
+        if status != 200:
+            continue
+        st = corpo.get("status") or ""
+        if st not in STATUS_ESTORNO_MP:
+            continue
+        parte = {
+            "pagamentoId": pag_id,
+            "valor": item.get("valor") or 0,
+            "forma": item.get("forma") or "Mercado Pago",
+        }
+        registro = registrar_estorno_mp(
+            item.get("orderId") or "",
+            item.get("nome") or "",
+            parte,
+            st,
+            origem="vigilancia",
+        )
+        if registro:
+            novos.append(registro)
+    return novos
+
+
 def conferir_e_efetivar(pedido: dict, token: str) -> tuple[dict[int, dict], bool]:
     antes = json.dumps(pedido["partes"], sort_keys=True)
     dados_pix = {}
     for indice, parte in enumerate(pedido["partes"]):
-        if parte.get("mp") and parte.get("status") != "PAGO":
-            dados_pix[indice] = conferir_parte_mp(pedido, indice, parte, token)
-            if parte["mp"] == "LINK" and parte.get("status") != "PAGO" and parte.get("link") and link_vencido(parte):
-                parte.pop("link", None)
+        if not parte.get("mp") or parte.get("status") == "ESTORNADO":
+            continue
+        dados_pix[indice] = conferir_parte_mp(pedido, indice, parte, token)
+        if parte.get("status") == "ESTORNADO":
+            registrar_estorno_mp(
+                pedido["orderId"],
+                pedido.get("nome") or "",
+                parte,
+                parte.get("statusMp") or "refunded",
+                origem="pedido",
+            )
+        elif (
+            parte["mp"] == "LINK"
+            and parte.get("status") != "PAGO"
+            and parte.get("link")
+            and link_vencido(parte)
+        ):
+            parte.pop("link", None)
     with TRAVA_MP:
         pronto = all(parte.get("status") == "PAGO" for parte in pedido["partes"] if parte.get("mp"))
         if pronto and pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO":
             pedido["pagoMercadoPagoEm"] = agora_texto()
+            pedido["avisoPagamentoPendente"] = True
             efetivar_venda(pedido)
+            threading.Thread(target=avisar_dona_pagamento_mp, args=(dict(pedido),), daemon=True).start()
             return dados_pix, True
     if json.dumps(pedido["partes"], sort_keys=True) != antes:
         salvar()
@@ -5405,7 +6648,7 @@ def gerar_cobranca_mp(order_id: str, request: Request):
     dados_pix, efetivou = conferir_e_efetivar(pedido, token)
     if pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO":
         for indice, parte in enumerate(pedido["partes"]):
-            if not parte.get("mp") or parte.get("status") == "PAGO":
+            if not parte.get("mp") or parte.get("status") in ("PAGO", "ESTORNADO"):
                 continue
             if parte["mp"] == "PIX" and not parte.get("pagamentoId"):
                 dados_pix[indice] = criar_pix_parte(pedido, indice, parte, token)
@@ -5422,6 +6665,56 @@ def conferir_cobranca_mp(order_id: str, request: Request):
     return estado_cobranca(request, pedido, dados_pix, efetivou)
 
 
+@app.post("/api/pedidos/{order_id}/mercadopago/aviso-visto")
+def marcar_aviso_pagamento_visto(order_id: str, request: Request):
+    pedido = pedido_mp(order_id)
+    pedido.pop("avisoPagamentoPendente", None)
+    salvar()
+    return {"ok": True, "pedido": pedido_publico(request, pedido)}
+
+
+@app.get("/api/mercadopago/estornos")
+def conferir_estornos_mp():
+    avisos_antes = {item["id"] for item in ESTORNOS if item.get("avisoPendente")}
+    try:
+        token = token_mp()
+    except HTTPException:
+        return {
+            "estornos": list(reversed(ESTORNOS)),
+            "avisos": [item for item in ESTORNOS if item.get("avisoPendente")],
+            "vigilancia": list(reversed(MP_VIGILANCIA)),
+            "novos": [],
+            "caixa": CAIXA,
+        }
+    for pedido in PEDIDOS:
+        if any(
+            parte.get("mp") and parte.get("status") == "PAGO" and parte.get("pagamentoId")
+            for parte in pedido.get("partes") or []
+        ):
+            conferir_e_efetivar(pedido, token)
+    conferir_vigilancia_mp(token)
+    avisos = [item for item in ESTORNOS if item.get("avisoPendente")]
+    novos = [item for item in avisos if item["id"] not in avisos_antes]
+    return {
+        "estornos": list(reversed(ESTORNOS)),
+        "avisos": avisos,
+        "vigilancia": list(reversed(MP_VIGILANCIA)),
+        "novos": novos,
+        "caixa": CAIXA,
+    }
+
+
+@app.post("/api/mercadopago/estornos/{estorno_id}/aviso-visto")
+def marcar_aviso_estorno_visto(estorno_id: str):
+    registro = next((item for item in ESTORNOS if item.get("id") == estorno_id), None)
+    if not registro:
+        raise HTTPException(status_code=404, detail="Esse estorno não está no PDV.")
+    registro["avisoPendente"] = False
+    pedido = next((item for item in PEDIDOS if item.get("orderId") == registro.get("orderId")), None)
+    if pedido:
+        pedido.pop("avisoEstornoPendente", None)
+    salvar()
+    return {"ok": True, "estorno": registro}
 
 
 class ItemPreco(BaseModel):
@@ -5584,14 +6877,26 @@ def gravar_ifood_api(dados: dict) -> None:
     os.replace(temporario, ARQUIVO_IFOOD_API)
 
 
-def chamar_ifood(metodo: str, caminho: str, token: str = "", formulario: dict | None = None) -> tuple[int, object]:
+def chamar_ifood(
+    metodo: str,
+    caminho: str,
+    token: str = "",
+    formulario: dict | None = None,
+    corpo: object | None = None,
+    extras: dict | None = None,
+) -> tuple[int, object]:
     cabecalhos = {"Accept": "application/json", "User-Agent": "CaminhoDosDoces-PDV/1.0"}
     dados = None
     if token:
         cabecalhos["Authorization"] = f"Bearer {token}"
+    if extras:
+        cabecalhos.update(extras)
     if formulario is not None:
         dados = urlencode(formulario).encode("utf-8")
         cabecalhos["Content-Type"] = "application/x-www-form-urlencoded"
+    elif corpo is not None:
+        dados = json.dumps(corpo).encode("utf-8")
+        cabecalhos["Content-Type"] = "application/json"
     pedido = urllib.request.Request(IFOOD_API + caminho, data=dados, method=metodo, headers=cabecalhos)
     try:
         with urllib.request.urlopen(pedido, timeout=25) as resposta:
@@ -5653,6 +6958,10 @@ def lojas_ifood(token: str) -> list[dict]:
     ]
 
 
+IFOOD_POLLING = {"rodando": False, "parar": False, "ultimoEm": "", "ultimoErro": "", "novos": 0}
+TRAVA_IFOOD = threading.Lock()
+
+
 def ifood_api_publico() -> dict:
     dados = ler_ifood_api()
     client_id = dados.get("clientId") or ""
@@ -5663,6 +6972,28 @@ def ifood_api_publico() -> dict:
         "loja": dados.get("loja") or "",
         "ligadoEm": dados.get("ligadoEm") or "",
         "ultimaBusca": dados.get("ultimaBusca") or {},
+        "ultimoRepasse": dados.get("ultimoRepasse") or {},
+        "ultimoCatalogo": dados.get("ultimoCatalogo") or {},
+        "pedidosAtivos": bool(dados.get("pedidosAtivos", True)),
+        "confirmarAuto": bool(dados.get("confirmarAuto", True)),
+        "polling": {
+            "rodando": IFOOD_POLLING["rodando"],
+            "ultimoEm": IFOOD_POLLING.get("ultimoEm") or "",
+            "ultimoErro": IFOOD_POLLING.get("ultimoErro") or "",
+            "novos": IFOOD_POLLING.get("novos", 0),
+        },
+        "pendentes": [
+            {
+                "orderId": p["orderId"],
+                "nome": p.get("nome", ""),
+                "displayId": p.get("ifoodDisplayId") or "",
+                "cozinhaStatus": p.get("cozinhaStatus", ""),
+                "total": p.get("total", 0),
+            }
+            for p in PEDIDOS
+            if p.get("origem") == "iFood" and p.get("cozinhaStatus") not in ("CANCELADO",)
+            and p.get("ifoodId")
+        ][-12:],
     }
 
 
@@ -5710,17 +7041,42 @@ def ligar_ifood_api(payload: IfoodApiChave, request: Request):
         "accessToken": token,
         "expiraEm": expira,
         "ligadoEm": agora_texto(),
+        "pedidosAtivos": True,
+        "confirmarAuto": True,
     })
+    iniciar_polling_ifood()
     return ifood_api_publico()
 
 
 @app.post("/api/ifood/api/desligar")
 def desligar_ifood_api(request: Request):
     exigir_admin(request)
+    parar_polling_ifood()
     try:
         os.remove(ARQUIVO_IFOOD_API)
     except OSError:
         pass
+    return ifood_api_publico()
+
+
+class IfoodPreferencias(BaseModel):
+    pedidosAtivos: bool = True
+    confirmarAuto: bool = True
+
+
+@app.put("/api/ifood/api/preferencias")
+def preferencias_ifood(payload: IfoodPreferencias, request: Request):
+    exigir_admin(request)
+    dados = ler_ifood_api()
+    if not dados.get("clientId"):
+        raise HTTPException(status_code=400, detail="A API do iFood não está ligada.")
+    dados["pedidosAtivos"] = bool(payload.pedidosAtivos)
+    dados["confirmarAuto"] = bool(payload.confirmarAuto)
+    gravar_ifood_api(dados)
+    if dados["pedidosAtivos"]:
+        iniciar_polling_ifood()
+    else:
+        parar_polling_ifood()
     return ifood_api_publico()
 
 
@@ -5752,26 +7108,19 @@ def somar_vendas_ifood(vendas: list) -> dict:
     return {"bruto": round(bruto, 2), "liquido": round(liquido, 2), "pedidos": pedidos, "cancelados": cancelados}
 
 
-@app.post("/api/ifood/vendas-hoje")
-def buscar_vendas_ifood_hoje(request: Request):
-    exigir_admin(request)
-    token, dados = token_ifood()
-    merchant = dados.get("merchantId") or ""
-    if not merchant:
-        raise HTTPException(status_code=400, detail="Falta o Merchant ID da loja. Ligue a API do iFood de novo.")
-    hoje = datetime.now().strftime("%Y-%m-%d")
+def buscar_vendas_periodo_ifood(token: str, merchant: str, inicio: str, fim: str) -> list:
     vendas: list = []
     pagina = 1
-    tentou_token_novo = False
+    tentou = False
     while pagina <= 20:
         caminho = (
             f"/financial/v3.0/merchants/{quote(merchant)}/sales?"
-            + urlencode({"beginSalesDate": hoje, "endSalesDate": hoje, "page": pagina, "size": 100})
+            + urlencode({"beginSalesDate": inicio, "endSalesDate": fim, "page": pagina, "size": 100})
         )
         status, corpo = chamar_ifood("GET", caminho, token)
-        if status == 401 and not tentou_token_novo:
-            token, dados = token_ifood(forcar=True)
-            tentou_token_novo = True
+        if status == 401 and not tentou:
+            token, _ = token_ifood(forcar=True)
+            tentou = True
             continue
         if status in (401, 403):
             raise HTTPException(status_code=400, detail="O iFood não liberou a API Financeira para este aplicativo. Peça a liberação no Portal do Desenvolvedor.")
@@ -5785,11 +7134,476 @@ def buscar_vendas_ifood_hoje(request: Request):
         if not lote or (total_paginas and pagina >= total_paginas) or len(lote) < 100:
             break
         pagina += 1
-    resumo = somar_vendas_ifood(vendas)
+    return vendas
+
+
+@app.post("/api/ifood/vendas-hoje")
+def buscar_vendas_ifood_hoje(request: Request):
+    exigir_admin(request)
+    token, dados = token_ifood()
+    merchant = dados.get("merchantId") or ""
+    if not merchant:
+        raise HTTPException(status_code=400, detail="Falta o Merchant ID da loja. Ligue a API do iFood de novo.")
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    resumo = somar_vendas_ifood(buscar_vendas_periodo_ifood(token, merchant, hoje, hoje))
     resumo.update({"data": datetime.now().strftime("%d/%m/%Y"), "buscadoEm": agora_texto()})
     dados = ler_ifood_api()
     if dados:
         dados["ultimaBusca"] = resumo
+        gravar_ifood_api(dados)
+    ADMIN["ifoodSaldo"] = round(float(resumo.get("bruto") or 0), 2)
+    registrar_venda_dia(
+        "ifoodDias",
+        "ifoodVendasEm",
+        "ifoodCicloInicio",
+        "ifoodCicloTipo",
+        ADMIN.get("ifoodAntecipacao") or "NENHUMA",
+        conta_ifood(ADMIN),
+    )
+    salvar()
+    resumo["gravado"] = True
+    resumo["ifoodSaldo"] = ADMIN["ifoodSaldo"]
+    return resumo
+
+
+@app.post("/api/ifood/repasses")
+def buscar_repasses_ifood(request: Request):
+    exigir_admin(request)
+    token, dados = token_ifood()
+    merchant = dados.get("merchantId") or ""
+    if not merchant:
+        raise HTTPException(status_code=400, detail="Falta o Merchant ID da loja.")
+    fim = datetime.now()
+    inicio = fim - timedelta(days=30)
+    caminho = (
+        f"/financial/v3.0/merchants/{quote(merchant)}/settlements?"
+        + urlencode({
+            "beginPaymentDate": inicio.strftime("%Y-%m-%d"),
+            "endPaymentDate": fim.strftime("%Y-%m-%d"),
+        })
+    )
+    status, corpo = chamar_ifood("GET", caminho, token)
+    if status == 401:
+        token, _ = token_ifood(forcar=True)
+        status, corpo = chamar_ifood("GET", caminho, token)
+    if status in (401, 403):
+        raise HTTPException(status_code=400, detail="O iFood não liberou a API de Liquidação. Peça a liberação Financeira no Portal do Desenvolvedor.")
+    if status != 200:
+        raise HTTPException(status_code=502, detail=f"O iFood respondeu: {motivo_ifood(corpo)}")
+    lista = corpo if isinstance(corpo, list) else (corpo.get("settlements") or corpo.get("data") or [])
+    total = 0.0
+    itens = []
+    for item in lista if isinstance(lista, list) else []:
+        if not isinstance(item, dict):
+            continue
+        valor = valor_ifood(item.get("balance") or item.get("amount") or item.get("netAmount") or item.get("value"))
+        total += valor
+        itens.append({
+            "data": str(item.get("paymentDate") or item.get("expectedPaymentDate") or item.get("calculationDate") or ""),
+            "valor": round(valor, 2),
+            "status": str(item.get("status") or item.get("settlementStatus") or ""),
+        })
+    resumo = {
+        "total": round(total, 2),
+        "quantidade": len(itens),
+        "itens": itens[:20],
+        "buscadoEm": agora_texto(),
+    }
+    dados = ler_ifood_api()
+    if dados:
+        dados["ultimoRepasse"] = resumo
+        gravar_ifood_api(dados)
+    return resumo
+
+
+def pedido_por_ifood(ifood_id: str) -> dict | None:
+    for pedido in PEDIDOS:
+        if pedido.get("ifoodId") == ifood_id:
+            return pedido
+    return None
+
+
+def montar_endereco_ifood(detalhe: dict) -> str:
+    entrega = detalhe.get("delivery") or {}
+    endereco = entrega.get("deliveryAddress") or {}
+    partes = [
+        endereco.get("formattedAddress") or " ".join(
+            parte for parte in [endereco.get("streetName"), endereco.get("streetNumber")] if parte
+        ),
+        endereco.get("neighborhood"),
+        endereco.get("complement"),
+        endereco.get("reference"),
+        " ".join(parte for parte in [endereco.get("city"), endereco.get("state")] if parte),
+        endereco.get("postalCode"),
+    ]
+    return ", ".join(str(parte).strip() for parte in partes if parte and str(parte).strip())
+
+
+def detalhe_pedido_ifood(token: str, ifood_id: str) -> dict:
+    for tentativa in range(6):
+        status, corpo = chamar_ifood("GET", f"/order/v1.0/orders/{quote(ifood_id)}", token)
+        if status == 200 and isinstance(corpo, dict):
+            return corpo
+        if status == 404:
+            time.sleep(min(2 ** tentativa, 20))
+            continue
+        if status == 401:
+            token, _ = token_ifood(forcar=True)
+            continue
+        raise HTTPException(status_code=502, detail=f"O iFood respondeu: {motivo_ifood(corpo)}")
+    raise HTTPException(status_code=404, detail="O pedido do iFood ainda não está disponível. Tente de novo em alguns segundos.")
+
+
+def criar_pedido_do_ifood(detalhe: dict) -> dict:
+    ifood_id = str(detalhe.get("id") or "")
+    existente = pedido_por_ifood(ifood_id)
+    if existente:
+        return existente
+    cliente = detalhe.get("customer") or {}
+    telefone_obj = cliente.get("phone") or {}
+    telefone = str(telefone_obj.get("number") or telefone_obj.get("localizer") or "08007003050")
+    nome = str(cliente.get("name") or "Cliente iFood").strip() or "Cliente iFood"
+    itens = []
+    for item in detalhe.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        qtd = int(max(valor_ifood(item.get("quantity")), 1))
+        unit = valor_ifood(item.get("unitPrice"))
+        if unit <= 0 and qtd:
+            unit = round(valor_ifood(item.get("totalPrice") or item.get("price")) / qtd, 2)
+        observacao = str(item.get("observations") or "").strip()
+        extras = []
+        for opcao in item.get("options") or []:
+            if isinstance(opcao, dict) and opcao.get("name"):
+                extras.append(str(opcao["name"]))
+        nome_item = str(item.get("name") or "Doce iFood")
+        if extras:
+            nome_item = f"{nome_item} ({', '.join(extras)})"
+        if observacao:
+            nome_item = f"{nome_item} — {observacao}"
+        itens.append({
+            "productId": str(item.get("id") or item.get("uniqueId") or f"IFOOD-{uuid.uuid4().hex[:6]}"),
+            "name": nome_item[:120],
+            "quantity": qtd,
+            "unitPrice": round(max(unit, 0), 2),
+        })
+    if not itens:
+        itens = [{"productId": "IFOOD-VAZIO", "name": "Pedido iFood", "quantity": 1, "unitPrice": 0.0}]
+    totais = detalhe.get("total") or {}
+    total = round(valor_ifood(totais.get("orderAmount") or totais.get("subTotal")), 2)
+    subtotal = round(sum(i["quantity"] * i["unitPrice"] for i in itens), 2)
+    taxa = round(max(total - subtotal, 0), 2)
+    tipo = str(detalhe.get("orderType") or "DELIVERY").upper()
+    entrega = "Retirada na loja" if tipo in ("TAKEOUT", "DINE_IN") else "iFood"
+    display = str(detalhe.get("displayId") or detalhe.get("shortCode") or ifood_id[:8])
+    pedido = {
+        "orderId": f"ORD-{uuid.uuid4().hex[:6].upper()}",
+        "ifoodId": ifood_id,
+        "ifoodDisplayId": display,
+        "ifoodTipo": tipo,
+        "nome": nome[:80],
+        "telefone": telefone_exibicao(telefone) if len("".join(c for c in telefone if c.isdigit())) >= 10 else telefone,
+        "cpf": "",
+        "origem": "iFood",
+        "endereco": montar_endereco_ifood(detalhe),
+        "cep": str(((detalhe.get("delivery") or {}).get("deliveryAddress") or {}).get("postalCode") or ""),
+        "dataEvento": "",
+        "horario": "",
+        "entrega": entrega,
+        "distanciaKm": 0.0,
+        "taxaControle": 0.0,
+        "observacoes": f"Pedido iFood nº {display}. Pagamento pelo aplicativo.",
+        "items": itens,
+        "subtotal": subtotal,
+        "taxaEntrega": taxa,
+        "valorTabela": total,
+        "valorCobrado": total,
+        "resultado": 0.0,
+        "metodo": "IFOOD",
+        "total": total,
+        "sinal": 0.0,
+        "restante": 0.0,
+        "pagamento": "Pago no iFood",
+        "partes": [{"forma": "iFood", "valor": total}],
+        "statusPagamento": "PAGO",
+        "lembrete": "Valor entra no fechamento do iFood, não na gaveta.",
+        "juros": "",
+        "criadoEm": agora_texto(),
+        "cupomTipo": "NAO_FISCAL",
+        "cozinhaStatus": "NA_COZINHA",
+        "taxaServico": 0.0,
+        "tipoLancamento": "IFOOD",
+    }
+    PEDIDOS.append(pedido)
+    mesclar_contato(nome, pedido["telefone"], "iFood")
+    pedir_estoque(pedido["orderId"])
+    salvar()
+    return pedido
+
+
+def confirmar_pedido_ifood(token: str, ifood_id: str) -> None:
+    status, corpo = chamar_ifood("POST", f"/order/v1.0/orders/{quote(ifood_id)}/confirm", token)
+    if status in (200, 202, 204):
+        return
+    if status == 401:
+        token, _ = token_ifood(forcar=True)
+        status, corpo = chamar_ifood("POST", f"/order/v1.0/orders/{quote(ifood_id)}/confirm", token)
+        if status in (200, 202, 204):
+            return
+    if status not in (409,):
+        print("IFOOD-CONFIRM", status, motivo_ifood(corpo), flush=True)
+
+
+def avisar_pronto_ifood(pedido: dict) -> None:
+    ifood_id = pedido.get("ifoodId") or ""
+    if not ifood_id or not ler_ifood_api().get("clientId"):
+        return
+    try:
+        token, _ = token_ifood()
+        status, corpo = chamar_ifood("POST", f"/order/v1.0/orders/{quote(ifood_id)}/readyToPickup", token)
+        if status == 401:
+            token, _ = token_ifood(forcar=True)
+            status, corpo = chamar_ifood("POST", f"/order/v1.0/orders/{quote(ifood_id)}/readyToPickup", token)
+        if status not in (200, 202, 204, 409):
+            print("IFOOD-PRONTO", status, motivo_ifood(corpo), flush=True)
+        else:
+            pedido["ifoodProntoEm"] = agora_texto()
+    except Exception as erro:
+        print("IFOOD-PRONTO", erro, flush=True)
+
+
+def despachar_ifood(pedido: dict) -> None:
+    ifood_id = pedido.get("ifoodId") or ""
+    if not ifood_id or pedido.get("ifoodTipo") != "DELIVERY":
+        return
+    if (ADMIN.get("ifoodPlano") or "BASICO") != "BASICO":
+        return
+    try:
+        token, _ = token_ifood()
+        status, corpo = chamar_ifood("POST", f"/order/v1.0/orders/{quote(ifood_id)}/dispatch", token)
+        if status not in (200, 202, 204, 409):
+            print("IFOOD-DISPATCH", status, motivo_ifood(corpo), flush=True)
+    except Exception as erro:
+        print("IFOOD-DISPATCH", erro, flush=True)
+
+
+def cancelar_no_pdv_por_ifood(ifood_id: str) -> None:
+    pedido = pedido_por_ifood(ifood_id)
+    if not pedido or pedido.get("cozinhaStatus") == "CANCELADO":
+        return
+    pedido["cozinhaStatus"] = "CANCELADO"
+    pedido["canceladoEm"] = agora_texto()
+    pedido["observacoes"] = ((pedido.get("observacoes") or "") + " Cancelado no iFood.").strip()
+    salvar()
+
+
+def codigo_evento_ifood(evento: dict) -> str:
+    codigo = str(evento.get("code") or evento.get("fullCode") or "").upper()
+    mapa = {
+        "PLC": "PLACED", "PLACED": "PLACED",
+        "CFM": "CONFIRMED", "CONFIRMED": "CONFIRMED",
+        "CAN": "CANCELLED", "CANCELLED": "CANCELLED", "CANCELED": "CANCELLED",
+        "RTP": "READY_TO_PICKUP", "READY_TO_PICKUP": "READY_TO_PICKUP",
+        "DSP": "DISPATCHED", "DISPATCHED": "DISPATCHED",
+        "CON": "CONCLUDED", "CONCLUDED": "CONCLUDED",
+        "PRS": "PREPARATION_STARTED", "PREPARATION_STARTED": "PREPARATION_STARTED",
+    }
+    return mapa.get(codigo, codigo)
+
+
+def processar_eventos_ifood(eventos: list, token: str, dados: dict) -> int:
+    novos = 0
+    ids = []
+    for evento in eventos:
+        if not isinstance(evento, dict):
+            continue
+        eid = evento.get("id")
+        if eid:
+            ids.append({"id": eid})
+        ifood_id = str(evento.get("orderId") or (evento.get("metadata") or {}).get("orderId") or "")
+        codigo = codigo_evento_ifood(evento)
+        try:
+            if codigo == "PLACED" and ifood_id:
+                if not pedido_por_ifood(ifood_id):
+                    detalhe = detalhe_pedido_ifood(token, ifood_id)
+                    criar_pedido_do_ifood(detalhe)
+                    novos += 1
+                    if dados.get("confirmarAuto", True):
+                        confirmar_pedido_ifood(token, ifood_id)
+            elif codigo in ("CANCELLED",) and ifood_id:
+                cancelar_no_pdv_por_ifood(ifood_id)
+            elif codigo == "CONFIRMED" and ifood_id and not pedido_por_ifood(ifood_id):
+                detalhe = detalhe_pedido_ifood(token, ifood_id)
+                criar_pedido_do_ifood(detalhe)
+                novos += 1
+        except Exception as erro:
+            print("IFOOD-EVENTO", codigo, ifood_id, erro, flush=True)
+    if ids:
+        status, _ = chamar_ifood("POST", "/events/v1.0/events/acknowledgment", token, corpo=ids)
+        if status not in (200, 202, 204):
+            chamar_ifood("POST", "/order/v1.0/orders:acknowledgment", token, corpo={"acknowledgedEventIds": [i["id"] for i in ids]})
+    return novos
+
+
+def um_ciclo_polling_ifood() -> None:
+    dados = ler_ifood_api()
+    if not dados.get("clientId") or not dados.get("pedidosAtivos", True):
+        return
+    with TRAVA_IFOOD:
+        try:
+            token, dados = token_ifood()
+            merchant = dados.get("merchantId") or ""
+            extras = {"x-polling-merchants": merchant} if merchant else None
+            status, corpo = chamar_ifood("GET", "/events/v1.0/events:polling", token, extras=extras)
+            if status == 401:
+                token, dados = token_ifood(forcar=True)
+                status, corpo = chamar_ifood("GET", "/events/v1.0/events:polling", token, extras=extras)
+            if status == 204:
+                IFOOD_POLLING["ultimoEm"] = agora_texto()
+                IFOOD_POLLING["ultimoErro"] = ""
+                return
+            if status in (401, 403):
+                IFOOD_POLLING["ultimoErro"] = "O iFood não liberou a API de Pedidos. Peça a liberação no Portal do Desenvolvedor."
+                return
+            if status != 200:
+                IFOOD_POLLING["ultimoErro"] = motivo_ifood(corpo)
+                return
+            eventos = corpo if isinstance(corpo, list) else (corpo.get("events") or [])
+            novos = processar_eventos_ifood(eventos if isinstance(eventos, list) else [], token, dados)
+            IFOOD_POLLING["novos"] = int(IFOOD_POLLING.get("novos") or 0) + novos
+            IFOOD_POLLING["ultimoEm"] = agora_texto()
+            IFOOD_POLLING["ultimoErro"] = ""
+        except Exception as erro:
+            IFOOD_POLLING["ultimoErro"] = str(erro)[:200]
+
+
+def laço_polling_ifood() -> None:
+    IFOOD_POLLING["rodando"] = True
+    try:
+        while not IFOOD_POLLING.get("parar"):
+            um_ciclo_polling_ifood()
+            for _ in range(30):
+                if IFOOD_POLLING.get("parar"):
+                    break
+                time.sleep(1)
+    finally:
+        IFOOD_POLLING["rodando"] = False
+
+
+def iniciar_polling_ifood() -> None:
+    dados = ler_ifood_api()
+    if not dados.get("clientId") or not dados.get("pedidosAtivos", True):
+        return
+    if IFOOD_POLLING.get("rodando"):
+        return
+    IFOOD_POLLING["parar"] = False
+    threading.Thread(target=laço_polling_ifood, daemon=True).start()
+
+
+def parar_polling_ifood() -> None:
+    IFOOD_POLLING["parar"] = True
+
+
+@app.post("/api/ifood/pedidos/conferir")
+def conferir_pedidos_ifood(request: Request):
+    exigir_admin(request)
+    um_ciclo_polling_ifood()
+    return ifood_api_publico()
+
+
+@app.post("/api/ifood/pedidos/{order_id}/confirmar")
+def confirmar_pedido_ifood_manual(order_id: str, request: Request):
+    exigir_admin(request)
+    pedido = next((p for p in PEDIDOS if p["orderId"] == order_id), None)
+    if not pedido or not pedido.get("ifoodId"):
+        raise HTTPException(status_code=404, detail="Esse pedido do iFood não está no PDV.")
+    token, _ = token_ifood()
+    confirmar_pedido_ifood(token, pedido["ifoodId"])
+    return {"ok": True, "pedido": pedido_publico(request, pedido)}
+
+
+def normalizar_nome_doce(nome: str) -> str:
+    return "".join(c for c in (nome or "").lower() if c.isalnum() or c.isspace()).strip()
+
+
+@app.post("/api/ifood/catalogo")
+def conferir_catalogo_ifood(request: Request):
+    exigir_admin(request)
+    token, dados = token_ifood()
+    merchant = dados.get("merchantId") or ""
+    if not merchant:
+        raise HTTPException(status_code=400, detail="Falta o Merchant ID da loja.")
+    status, catalogs = chamar_ifood("GET", f"/catalog/v2.0/merchants/{quote(merchant)}/catalogs", token)
+    if status == 401:
+        token, _ = token_ifood(forcar=True)
+        status, catalogs = chamar_ifood("GET", f"/catalog/v2.0/merchants/{quote(merchant)}/catalogs", token)
+    if status in (401, 403):
+        raise HTTPException(status_code=400, detail="O iFood não liberou a API de Catálogo. Peça a liberação no Portal do Desenvolvedor.")
+    if status != 200:
+        raise HTTPException(status_code=502, detail=f"O iFood respondeu: {motivo_ifood(catalogs)}")
+    lista_cat = catalogs if isinstance(catalogs, list) else (catalogs.get("catalogs") or [])
+    itens_ifood = []
+    for catalogo in lista_cat if isinstance(lista_cat, list) else []:
+        if not isinstance(catalogo, dict) or not catalogo.get("catalogId") and not catalogo.get("id"):
+            continue
+        catalog_id = catalogo.get("catalogId") or catalogo.get("id")
+        caminho = f"/catalog/v2.0/merchants/{quote(merchant)}/catalogs/{quote(str(catalog_id))}/categories?include_items=true"
+        st, cats = chamar_ifood("GET", caminho, token)
+        if st != 200:
+            continue
+        categorias = cats if isinstance(cats, list) else (cats.get("categories") or [])
+        for cat in categorias if isinstance(categorias, list) else []:
+            if not isinstance(cat, dict):
+                continue
+            for item in cat.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                preco = valor_ifood((item.get("price") or {}).get("value") if isinstance(item.get("price"), dict) else item.get("price"))
+                itens_ifood.append({
+                    "nome": str(item.get("name") or item.get("externalCode") or "Sem nome"),
+                    "preco": preco,
+                    "status": str(item.get("status") or ""),
+                    "categoria": str(cat.get("name") or ""),
+                })
+    pdv_por_nome = {normalizar_nome_doce(i.get("nome", "")): i for i in CARDAPIO}
+    iguais = diferentes = so_ifood = so_pdv = 0
+    linhas = []
+    vistos = set()
+    for item in itens_ifood:
+        chave = normalizar_nome_doce(item["nome"])
+        vistos.add(chave)
+        local = pdv_por_nome.get(chave)
+        if not local:
+            so_ifood += 1
+            linhas.append({"nome": item["nome"], "situacao": "Só no iFood", "precoIfood": item["preco"], "precoPdv": None})
+            continue
+        if abs(float(local.get("preco") or 0) - item["preco"]) > 0.009:
+            diferentes += 1
+            linhas.append({
+                "nome": item["nome"],
+                "situacao": "Preço diferente",
+                "precoIfood": item["preco"],
+                "precoPdv": float(local.get("preco") or 0),
+            })
+        else:
+            iguais += 1
+    for doce in CARDAPIO:
+        chave = normalizar_nome_doce(doce.get("nome", ""))
+        if chave and chave not in vistos and doce.get("ativo", True):
+            so_pdv += 1
+            linhas.append({"nome": doce.get("nome"), "situacao": "Só no PDV", "precoIfood": None, "precoPdv": float(doce.get("preco") or 0)})
+    resumo = {
+        "itensIfood": len(itens_ifood),
+        "iguais": iguais,
+        "diferentes": diferentes,
+        "soIfood": so_ifood,
+        "soPdv": so_pdv,
+        "linhas": linhas[:80],
+        "buscadoEm": agora_texto(),
+    }
+    dados = ler_ifood_api()
+    if dados:
+        dados["ultimoCatalogo"] = {k: resumo[k] for k in ("itensIfood", "iguais", "diferentes", "soIfood", "soPdv", "buscadoEm")}
         gravar_ifood_api(dados)
     return resumo
 
@@ -5797,6 +7611,7 @@ def buscar_vendas_ifood_hoje(request: Request):
 if garantir_senha_admin() or garantir_conferencia_antiga():
     salvar()
 
+iniciar_polling_ifood()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORTA", "8090")))

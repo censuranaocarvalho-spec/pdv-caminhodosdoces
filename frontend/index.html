@@ -47,7 +47,9 @@
     .logo-anel img {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain;
+      padding: 8px;
+      box-sizing: border-box;
       border-radius: 50%;
       border: 3px solid #7C4A3A;
       display: block;
@@ -127,7 +129,25 @@
     #fechar-fundo.aberto, #abrir-fundo.aberto, #canal-fundo.aberto, #guia-cozinha.aberto, #pronto-fundo.aberto, #mp-fundo.aberto { display: flex; align-items: flex-start; justify-content: center; }
     #fechar-fundo .card, #abrir-fundo .card, #canal-fundo .card, #guia-cozinha .card, #pronto-fundo .card, #mp-fundo .card { max-width: 520px; width: 100%; margin: 24px 0; }
     .mp-qr { display: block; width: 240px; max-width: 100%; height: auto; margin: 12px auto; }
-    .mp-codigo { width: 100%; font-family: monospace; font-size: 12px; }
+    .mp-codigo {
+      width: 100%;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      word-break: break-all;
+      white-space: pre-wrap;
+      background: #F8FBFC;
+      border: 1px dashed #7AC7D9;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 8px 0 4px;
+      cursor: pointer;
+      user-select: all;
+      color: #1a4a56;
+    }
+    .mp-codigo:hover, .mp-codigo:focus { border-color: #009EE3; background: #EEF8FC; outline: none; }
+    .mp-codigo.copiado { border-color: #22c55e; background: #F0FDF4; color: #166534; }
+    .mp-codigo-dica { margin: 0 0 8px; font-size: 13px; color: #5a6b72; }
     .mp-parte { border: 1px solid #F3E7EA; border-radius: 10px; padding: 10px; margin: 10px 0; }
     #preco-tabela input { width: 92px; }
     #preco-tabela td { font-size: 13px; }
@@ -283,6 +303,28 @@
     #atalho-ifood { bottom: 98px; background: #EA1D2C; box-shadow: 0 8px 22px rgba(234, 29, 44, 0.35); }
     #atalho-noventa { bottom: 178px; background: #FFC107; color: #3d2418; box-shadow: 0 8px 22px rgba(255, 193, 7, 0.45); }
     #atalho-mp { bottom: 258px; background: #009EE3; box-shadow: 0 8px 22px rgba(0, 158, 227, 0.4); }
+    #atalho-mp.luz-verde { background: #22c55e; box-shadow: 0 8px 22px rgba(34, 197, 94, 0.45); }
+    #atalho-mp.luz-vermelho { background: #ef4444; box-shadow: 0 8px 22px rgba(239, 68, 68, 0.4); }
+    #atalho-mp.luz-amarelo { background: #eab308; color: #3d2418; box-shadow: 0 8px 22px rgba(234, 179, 8, 0.45); }
+    .mp-luz-linha { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 8px; }
+    .luz-status {
+      width: 18px;
+      height: 18px;
+      margin-top: 4px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #cbd5e1;
+      box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.08);
+    }
+    .luz-status.verde { background: #22c55e; box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.28); }
+    .luz-status.vermelho { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.25); }
+    .luz-status.amarelo { background: #eab308; box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.3); }
+    .luz-status.cinza { background: #cbd5e1; }
+    #mp-luz-legenda { margin: 0 0 12px; font-size: 14px; }
+    #mp-luz-legenda.verde { color: #166534; }
+    #mp-luz-legenda.vermelho { color: #9B2C2C; }
+    #mp-luz-legenda.amarelo { color: #854d0e; }
+    #mp-luz-legenda.cinza { color: #64748b; }
     #mp-painel {
       display: none;
       position: fixed;
@@ -481,6 +523,20 @@
     .selo.pago { background: var(--turquesa); }
     .selo.fiscal { background: var(--chocolate); color: #fff; }
     .selo.novo { background: #f6c445; color: var(--chocolate); }
+    .selo.vencido { background: #9B2C2C; color: #fff; }
+    .selo.vence { background: #C47A12; color: #fff; }
+    .selo.categoria { background: #E8D5C4; color: var(--chocolate); }
+    .abas-almox { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+    .abas-almox button {
+      border: 1px solid var(--turquesa);
+      background: #fff;
+      color: var(--chocolate);
+      border-radius: 999px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .abas-almox button.ativa { background: var(--turquesa); color: #fff; }
     #aviso-clientes {
       position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 45;
       width: min(520px, calc(100% - 24px)); background: #fff; border: 2px solid #f6c445;
@@ -494,11 +550,18 @@
     .botoes-ficha .mini { margin-top: 10px; }
     .linha-cardapio {
       display: grid;
-      grid-template-columns: 96px 2fr 110px 72px 1.4fr auto;
+      grid-template-columns: 28px 96px 2fr 110px 72px 1.4fr auto;
       gap: 8px;
       align-items: center;
       margin-bottom: 12px;
     }
+    .linha-cardapio .check-excluir {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+    }
+    .linha-cardapio .check-excluir input { width: auto; margin: 0; }
     .foto-item, .foto-doce {
       width: 92px;
       height: 92px;
@@ -682,7 +745,7 @@
   <div id="login-fundo" class="aberto">
     <form class="login-card" id="login-form">
       <div class="logo-anel">
-        <img src="/static/logo.png?v=3" alt="Caminho dos Doces">
+        <img class="logo-loja" src="/static/logo.png" alt="Caminho dos Doces">
       </div>
       <h1>Caminho dos Doces</h1>
       <p class="nota">Cuide com cuidado, pois foi seu Amorzinho que fez.</p>
@@ -704,14 +767,14 @@
   <div id="tutorial-fundo">
     <div class="tutorial-card">
       <div class="logo-anel">
-        <img src="/static/logo.png?v=3" alt="Caminho dos Doces">
+        <img class="logo-loja" src="/static/logo.png" alt="Caminho dos Doces">
       </div>
       <h2>Informativo</h2>
       <p>Ele lembra a ordem do dia. Nada disso entra no iFood, no 99Food nem no banco sozinho: ela olha e confirma.</p>
       <ol class="tutorial-passos">
         <li><strong>De manhã.</strong> O robô pergunta se o cardápio está completo e se o estoque do iFood e do 99Food bate com a cozinha. Os três sim ganham um “Muito bem”.</li>
         <li><strong>Na encomenda.</strong> Sinal de 50% fica marcado como “Falta 50%”. Na entrega, ela escolhe dinheiro, PIX ou débito e aperta Recebi. O valor entra na gaveta.</li>
-        <li><strong>No depósito.</strong> Toque no mantimento, digite quanto pagou, quanto comprou e quanto entra numa receita. A frase embaixo mostra o custo.</li>
+        <li><strong>No depósito.</strong> Escolha a categoria, toque no mantimento, digite quanto pagou, quanto comprou, a receita e a validade. O que vence primeiro aparece primeiro.</li>
         <li><strong>À noite, depois das 22:30.</strong> O botão da fileira fica vermelho nesta ordem: vendas do iFood, vendas do 99Food, banco e contagem da gaveta. Digite, aperte Enter e salve.</li>
         <li><strong>Para fechar.</strong> Com os quatro prontos, o botão fica verde: Conferir e fechar. Aparece “Boa noite” e o caixa encerra.</li>
       </ol>
@@ -721,7 +784,7 @@
   <div id="tutorial-fiscal">
     <div class="tutorial-card">
       <div class="logo-anel">
-        <img src="/static/logo.png?v=3" alt="Caminho dos Doces">
+        <img class="logo-loja" src="/static/logo.png" alt="Caminho dos Doces">
       </div>
       <h2>Cupom fiscal</h2>
       <p>O cupom não fiscal já sai. O fiscal fica pronto, com o botão desligado, até a loja precisar dele.</p>
@@ -737,7 +800,7 @@
   </div>
   <header>
     <div class="logo-anel">
-      <img src="/static/logo.png?v=3" alt="Caminho dos Doces">
+      <img class="logo-loja" src="/static/logo.png" alt="Caminho dos Doces">
     </div>
     <p>PDV DA LOJA</p>
     <p class="credito">desenvolvido por TRÍADE FREITAS CORPOREND 2026</p>
@@ -980,8 +1043,9 @@
           <div id="bloco-mp" style="display:none">
             <label class="check-ativo"><input type="checkbox" id="usar-mp" checked> Receber pelo Mercado Pago</label>
             <div id="bloco-mp-email" style="display:none">
-              <label for="email-cliente">E-mail da cliente (o Pix do Mercado Pago pede)</label>
-              <input id="email-cliente" type="email" autocomplete="off">
+              <label for="email-cliente">E-mail da cliente</label>
+              <input id="email-cliente" type="email" autocomplete="email" placeholder="nome@email.com">
+              <p class="nota">O Mercado Pago pede o e-mail para gerar o Pix. Explique à cliente: “É só para emitir a cobrança com segurança; não usamos para propaganda.” Se já estiver na agenda, vem preenchido.</p>
             </div>
             <p class="nota" id="nota-mp"></p>
           </div>
@@ -1011,12 +1075,22 @@
     <section class="painel" id="cardapio">
       <div class="card">
         <h2>Cardápio</h2>
-        <p class="nota">Os itens saíram das fotos da pasta Cardápio. O caixa usa estes preços. Salvar aqui atualiza o PDF que vai no WhatsApp, do mesmo jeito que o cupom. iFood, 99Food e o catálogo do WhatsApp Business não aceitam alteração por este PDV: o preço nesses aplicativos continua no painel de cada um.</p>
+        <p class="nota">Os itens saíram das fotos da pasta Cardápio. O caixa usa estes preços. Salvar aqui atualiza o PDF que vai no WhatsApp, do mesmo jeito que o cupom. iFood, 99Food e o catálogo do WhatsApp Business não aceitam alteração por este PDV: o preço nesses aplicativos continua no painel de cada um. Para excluir um ou vários itens, marque e use Excluir — pede a senha do Administrativo.</p>
         <div class="linha">
           <button class="acao claro" id="cardapio-novo" type="button">Adicionar item</button>
           <button class="acao" id="cardapio-salvar" type="button">Salvar cardápio</button>
+          <button class="acao claro" id="cardapio-excluir-sel" type="button">Excluir selecionados</button>
         </div>
         <div class="aviso" id="cardapio-aviso"></div>
+        <div id="cardapio-senha-bloco" hidden style="margin:12px 0;padding:12px;border:1px solid #F3E7EA;border-radius:12px;background:#FFFBFC">
+          <p class="nota" id="cardapio-senha-texto">Digite a senha do Administrativo para excluir.</p>
+          <label>Senha do Administrativo</label>
+          <input id="cardapio-senha-admin" type="password" autocomplete="off">
+          <div class="botoes-ficha">
+            <button class="acao" id="cardapio-senha-ok" type="button">Confirmar exclusão</button>
+            <button class="acao claro" id="cardapio-senha-cancelar" type="button">Cancelar</button>
+          </div>
+        </div>
         <label>Enviar o PDF para este WhatsApp</label>
         <input id="cardapio-telefone" inputmode="tel" maxlength="15" placeholder="(00) 00000-0000">
         <button class="acao" id="cardapio-enviar" type="button">Enviar PDF do cardápio no WhatsApp</button>
@@ -1026,7 +1100,7 @@
     <section class="painel" id="agenda">
       <div class="card" id="organizar" hidden>
         <h2>Organizar dados da cliente</h2>
-        <p class="nota">Nome e sobrenome são obrigatórios. O CPF é opcional; se informar, use um CPF válido.</p>
+        <p class="nota">Nome e sobrenome são obrigatórios. CPF e e-mail são opcionais; se informar, use dados válidos.</p>
         <input id="org-id" type="hidden">
         <div class="linha">
           <div>
@@ -1042,18 +1116,24 @@
         <input id="org-telefone" inputmode="tel" maxlength="15" placeholder="(00) 00000-0000">
         <label>CPF (opcional)</label>
         <input id="org-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00">
+        <label>E-mail (para o Pix do Mercado Pago)</label>
+        <input id="org-email" type="email" autocomplete="email" placeholder="nome@email.com">
+        <p class="nota">Por que pedir: o Mercado Pago exige o e-mail para gerar o Pix. Diga à cliente: “Pedimos só para emitir a cobrança com segurança. Não enviamos propaganda.” Com o e-mail na agenda, o caixa já preenche sozinho.</p>
         <label>Endereço</label>
         <input id="org-endereco" placeholder="Rua, número, bairro">
         <div class="nota" id="org-perfil">Nenhuma compra desta cliente ainda.</div>
         <label>Observações</label>
         <textarea id="org-observacoes"></textarea>
-        <button class="acao" id="org-salvar" type="button">Salvar na agenda</button>
+        <div class="botoes-ficha">
+          <button class="acao" id="org-salvar" type="button">Salvar na agenda</button>
+          <button class="acao claro" id="org-apagar" type="button">Apagar contato</button>
+        </div>
         <div class="aviso" id="org-aviso"></div>
       </div>
       <div class="card">
         <h2>Agenda de clientes</h2>
-        <p class="nota">Digite o nome ou o telefone. Os contatos mais próximos aparecem aqui e no caixa. Enter ou um clique seleciona a cliente.</p>
-        <input class="busca" id="busca" placeholder="Nome ou telefone">
+        <p class="nota">Digite o nome, o telefone ou o e-mail. Cada telefone só pode existir uma vez. Contatos de grupos do WhatsApp não entram. Enter ou um clique seleciona a cliente.</p>
+        <input class="busca" id="busca" placeholder="Nome, telefone ou e-mail">
         <div id="lista-clientes" class="vazio">Nenhum contato ainda.</div>
       </div>
       <div class="card">
@@ -1114,10 +1194,23 @@
         <div class="aviso" id="passar-aviso"></div>
       </div>
       <div class="card">
+        <h2>Esperando o Mercado Pago</h2>
+        <p class="nota">Se o Pix, o link ou o WhatsApp der problema, não precisa cancelar. Abra a cobrança de novo ou troque para pagamento na loja.</p>
+        <div class="aviso" id="aviso-espera-mp"></div>
+        <div id="lista-espera-mp" class="vazio">Nenhuma venda esperando o Mercado Pago.</div>
+      </div>
+      <div class="card">
         <h2>Cancelar venda</h2>
-        <p class="nota">Preencha o motivo. A venda sai da agenda e o valor que entrou sai do caixa.</p>
+        <p class="nota">Use só se a cliente desistiu. Preencha o motivo. A venda sai da agenda e o valor que entrou sai do caixa.</p>
         <div class="aviso" id="aviso-cancelar"></div>
         <div id="lista-cancelar" class="vazio">Nenhuma venda para cancelar.</div>
+      </div>
+      <div class="card">
+        <h2>Estornos do Mercado Pago</h2>
+        <p class="nota">Devolva no app do Mercado Pago. Quando o status virar estornado, o PDV registra sozinho, avisa a loja e guarda o comprovante aqui.</p>
+        <div class="aviso" id="aviso-estorno-mp"></div>
+        <div id="lista-vigilancia-mp" class="vazio">Nenhuma devolução aguardando confirmação.</div>
+        <div id="lista-estornos-mp" class="vazio">Nenhum estorno registrado ainda.</div>
       </div>
       <div class="card">
         <h2>Lucro e prejuízo</h2>
@@ -1126,7 +1219,7 @@
       </div>
       <div class="card">
         <h2>Alterar pagamento</h2>
-        <p class="nota">Dinheiro, débito e PIX integrais entram por completo no caixa. Dá para trocar a forma depois da venda.</p>
+        <p class="nota">Dinheiro, débito e PIX integrais entram por completo no caixa. Venda ainda esperando o Mercado Pago também pode trocar para pagamento na loja, sem cancelar.</p>
         <div class="aviso" id="aviso-alterar"></div>
         <div id="lista-alterar" class="vazio">Nenhuma venda para alterar.</div>
       </div>
@@ -1308,22 +1401,26 @@
       <div class="card">
         <div class="aviso" id="alm-robo"></div>
         <h2>Almoxarifado / depósito</h2>
-        <p class="nota">Toque no que chegou, digite quanto pagou, quanto veio e quanto entra numa receita. A nota é opcional. O depósito mostra quantas receitas dá e quanto custa cada uma.</p>
-        <div class="atalhos" id="alm-atalhos">
-          <button type="button" data-mantimento="Farinha" data-unidade="g">Farinha</button>
-          <button type="button" data-mantimento="Açúcar" data-unidade="g">Açúcar</button>
-          <button type="button" data-mantimento="Leite condensado" data-unidade="g">Leite condensado</button>
-          <button type="button" data-mantimento="Manteiga" data-unidade="g">Manteiga</button>
-          <button type="button" data-mantimento="Chocolate" data-unidade="g">Chocolate</button>
-          <button type="button" data-mantimento="Ovos" data-unidade="un">Ovos</button>
-          <button type="button" data-mantimento="Leite" data-unidade="ml">Leite</button>
-          <button type="button" data-mantimento="Embalagem" data-unidade="un">Embalagem</button>
-          <button type="button" data-mantimento="Forminha" data-unidade="un">Forminha</button>
-          <button type="button" data-mantimento="" data-unidade="un">Outro</button>
+        <p class="nota">Toque no que chegou, digite quanto pagou, quanto veio e quanto entra numa receita. Informe a validade quando tiver — a lista segue PVPS (primeiro que vence, primeiro que sai). Guarde secos em pote fechado, etiquete com nome e abertura, e deixe fora do chão.</p>
+        <div class="abas-almox" id="alm-abas">
+          <button type="button" class="ativa" data-alm-cat="SECOS">Secos</button>
+          <button type="button" data-alm-cat="FRIO">Frio</button>
+          <button type="button" data-alm-cat="ADITIVOS">Aromatizantes</button>
+          <button type="button" data-alm-cat="EMBALAGENS">Embalagens</button>
         </div>
+        <div class="atalhos" id="alm-atalhos"></div>
         <label>Mantimento</label>
         <input id="alm-item" placeholder="Toque acima ou escreva o nome">
         <div class="linha">
+          <div>
+            <label>Categoria</label>
+            <select id="alm-categoria">
+              <option value="SECOS">Secos e graduados</option>
+              <option value="FRIO">Refrigerados e congelados</option>
+              <option value="ADITIVOS">Aromatizantes e corantes</option>
+              <option value="EMBALAGENS">Embalagens e descartáveis</option>
+            </select>
+          </div>
           <div>
             <label>Quanto pagou</label>
             <input id="alm-valor" inputmode="numeric" value="R$ 0,00">
@@ -1332,6 +1429,8 @@
             <label>Quanto comprou</label>
             <input id="alm-quantidade" type="number" min="0" step="0.01" placeholder="Ex.: 1000">
           </div>
+        </div>
+        <div class="linha">
           <div>
             <label>Medida</label>
             <select id="alm-unidade">
@@ -1340,8 +1439,6 @@
               <option value="un">unidades</option>
             </select>
           </div>
-        </div>
-        <div class="linha">
           <div>
             <label>Quanto entra numa receita</label>
             <input id="alm-uso" type="number" min="0" step="0.01" placeholder="Ex.: 200">
@@ -1351,9 +1448,27 @@
             <input id="alm-cupom" placeholder="Pode ficar em branco">
           </div>
         </div>
+        <div class="linha">
+          <div>
+            <label>Validade</label>
+            <input id="alm-validade" type="date">
+          </div>
+          <div>
+            <label>Aberto em</label>
+            <input id="alm-aberto" type="date">
+          </div>
+        </div>
         <p class="nota" id="alm-conta">Toque no mantimento e preencha os três números.</p>
         <button class="acao" id="alm-salvar" type="button">Guardar no depósito</button>
         <div class="aviso" id="alm-aviso"></div>
+        <div class="abas-almox" id="alm-filtro-lista" style="margin-top:16px">
+          <button type="button" class="ativa" data-alm-filtro="TODOS">Todos</button>
+          <button type="button" data-alm-filtro="SECOS">Secos</button>
+          <button type="button" data-alm-filtro="FRIO">Frio</button>
+          <button type="button" data-alm-filtro="ADITIVOS">Aromatizantes</button>
+          <button type="button" data-alm-filtro="EMBALAGENS">Embalagens</button>
+          <button type="button" data-alm-filtro="ALERTA">Vencendo</button>
+        </div>
         <div id="lista-almox" style="margin-top:12px"></div>
       </div>
     </section>
@@ -1396,7 +1511,7 @@
           <div class="card">
             <h2>iFood</h2>
             <button class="acao" id="ifood-abrir-app" type="button">Abrir o aplicativo do iFood</button>
-            <p class="nota">O botão pede a conferência e depois abre o aplicativo neste computador. O PDV não entra na conta. Se não vendeu, use Não vendi hoje. Se vendeu, digite o total e aperte Enter, ou, com a API do iFood ligada, aperte Buscar as vendas de hoje no iFood. Salve na aba Banco.</p>
+            <p class="nota">O botão pede a conferência e depois abre o aplicativo neste computador. O PDV não entra na conta. Se não vendeu, use Não vendi hoje. Se vendeu, digite o total, aperte Enter e salve na aba Banco. Com a API ligada, “Buscar as vendas de hoje” já grava o valor sozinho — se o número sobe ao buscar de novo, é porque entrou venda nova no iFood no dia.</p>
             <div class="linha">
               <div>
                 <label>Valor de vendas total do dia no iFood</label>
@@ -1408,8 +1523,8 @@
               <div>
                 <label>Plano</label>
                 <select id="ifood-plano">
+                  <option value="ENTREGA" selected>Entrega — o iFood entrega</option>
                   <option value="BASICO">Básico — a loja entrega</option>
-                  <option value="ENTREGA">Entrega — o iFood entrega</option>
                 </select>
               </div>
               <div>
@@ -1421,30 +1536,58 @@
               </div>
             </div>
             <div id="ifood-ciclo" class="ciclo"></div>
-            <h3>Taxa por pedido</h3>
+            <h3>Taxa por pedido (porcentagem sobre as vendas)</h3>
             <div class="linha">
               <div>
-                <label>Comissão (%)</label>
-                <input id="ifood-comissao" type="number" min="0" max="80" step="0.01" value="12">
+                <label>Comissão iFood — entrega parceira (%)</label>
+                <input id="ifood-comissao" type="number" min="0" max="80" step="0.0001" value="23">
               </div>
               <div>
-                <label>Pagamento online (%)</label>
-                <input id="ifood-taxa-pagamento" type="number" min="0" max="80" step="0.01" value="3.2">
+                <label>Taxa de pagamento online (%)</label>
+                <input id="ifood-taxa-pagamento" type="number" min="0" max="80" step="0.0001" value="3.2">
               </div>
             </div>
-            <p class="nota">Plano Básico começa com comissão de 12%. Plano Entrega começa com 23%. O pagamento online começa em 3,2% e entra quando o cliente paga pelo aplicativo: 15,2% no Básico e 26,2% no Entrega. Na entrega entra só a comissão.</p>
+            <div class="linha">
+              <div>
+                <label>Promoções incentivadas pela loja (%)</label>
+                <input id="ifood-promocoes-pct" type="number" min="0" max="80" step="0.0001" value="0">
+              </div>
+            </div>
+            <p class="nota">Cada % é sobre o valor das vendas do dia. Entrega começa em 23% + 3,2%. Básico começa em 12% + 3,2%. Na entrega (sem app) entra só a comissão. As promoções também saem em % do bruto.</p>
+            <h3>Conferir com o extrato (opcional)</h3>
+            <div class="linha">
+              <div>
+                <label>Comissão do extrato (R$)</label>
+                <input id="ifood-extrato-comissao" inputmode="numeric" value="R$ 0,00">
+              </div>
+              <div>
+                <label>Pagamento online do extrato (R$)</label>
+                <input id="ifood-extrato-pagamento" inputmode="numeric" value="R$ 0,00">
+              </div>
+            </div>
+            <div class="linha">
+              <div>
+                <label>Promoções do extrato (R$)</label>
+                <input id="ifood-extrato-promocoes" inputmode="numeric" value="R$ 0,00">
+              </div>
+              <div>
+                <label>&nbsp;</label>
+                <button class="acao claro" id="ifood-extrato-aplicar" type="button">Passar o extrato para %</button>
+              </div>
+            </div>
+            <p class="nota">Cole os R$ do extrato e aperte “Passar o extrato para %”. O PDV divide cada linha pelo valor das vendas e grava a porcentagem. Ex.: 221,83 ÷ 964,29 = 23%.</p>
             <h3>Mensalidade</h3>
             <div class="linha">
               <div>
                 <label>Mensalidade</label>
-                <input id="ifood-mensalidade" inputmode="numeric" value="R$ 110,00">
+                <input id="ifood-mensalidade" inputmode="numeric" value="R$ 150,00">
               </div>
               <div>
                 <label>Isenta até este faturamento no mês</label>
                 <input id="ifood-isencao" inputmode="numeric" value="R$ 1.800,00">
               </div>
             </div>
-            <p class="nota">Básico começa em R$ 110. Entrega e Entrega Flex começam em R$ 150. Com faturamento até R$ 1.800 no mês, a mensalidade fica isenta.</p>
+            <p class="nota">Custo fixo uma vez no mês, não por pedido. Básico R$ 110. Entrega R$ 150. Só cobra se o bruto do mês passar de R$ 1.800; até esse limite, isenta.</p>
             <h3>Antecipação do repasse</h3>
             <p class="nota">O repasse padrão sai em 30 dias. A taxa abaixo entra se a loja pedir para receber antes, e só sobre venda paga no aplicativo.</p>
             <div class="linha">
@@ -1480,6 +1623,20 @@
             <button class="acao" id="ifood-api-ligar" type="button">Ligar a API do iFood</button>
             <button class="acao claro" id="ifood-api-desligar" type="button" hidden>Desligar a API do iFood</button>
             <div class="aviso" id="ifood-api-aviso"></div>
+            <div id="ifood-api-modulos" hidden>
+              <h3>Pedidos, catálogo e repasse</h3>
+              <p class="nota" id="ifood-api-polling"></p>
+              <label class="check-ativo"><input type="checkbox" id="ifood-api-pedidos" checked> Receber pedidos do iFood no PDV</label>
+              <label class="check-ativo"><input type="checkbox" id="ifood-api-confirmar" checked> Confirmar pedido sozinho no iFood</label>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                <button class="acao claro" id="ifood-api-conferir-pedidos" type="button">Conferir pedidos agora</button>
+                <button class="acao claro" id="ifood-api-repasses" type="button">Buscar repasses dos últimos 30 dias</button>
+                <button class="acao claro" id="ifood-api-catalogo" type="button">Conferir cardápio com o iFood</button>
+              </div>
+              <p class="nota" id="ifood-api-repasse"></p>
+              <p class="nota" id="ifood-api-catalogo-nota"></p>
+              <div id="ifood-api-pendentes" class="nota"></div>
+            </div>
           </div>
         </div>
         <div class="aba-admin" id="aba-noventa">
@@ -1599,10 +1756,14 @@
         <div class="aba-admin" id="aba-mercadopago">
           <div class="card">
             <h2>Mercado Pago</h2>
-            <p class="nota" id="mp-estado">Conferindo a conexão...</p>
-            <p class="nota">A chave fica guardada só no computador do PDV. Depois de conectada, ela não aparece mais na tela, só os últimos 4 números.</p>
+            <div class="mp-luz-linha">
+              <span id="mp-luz" class="luz-status cinza" aria-hidden="true"></span>
+              <p class="nota" id="mp-estado" style="margin:0">Conferindo a conexão...</p>
+            </div>
+            <p id="mp-luz-legenda" class="nota cinza">Cinza: ainda sem conexão. Verde: deu certo. Vermelho: erro da chave ou do PDV. Amarelo: o PDV enviou, mas o Mercado Pago não confirmou.</p>
+            <p class="nota">A chave some do campo de propósito: fica guardada só no computador. Se der certo, a luz fica verde e o texto mostra os últimos 4 números.</p>
             <h3>Opção A: colar a chave</h3>
-            <p class="nota">No Mercado Pago Developers, abra Suas integrações, escolha a aplicação e copie o Access Token de produção. Ele começa com APP_USR-. A chave de teste começa com TEST-.</p>
+            <p class="nota">No Mercado Pago Developers → Suas integrações → sua aplicação → Credenciais de produção. Copie só o Access Token (o mais longo). Não use a Public Key, nem o Client ID, nem o Client Secret. Access Token começa com APP_USR-; a de teste começa com TEST-.</p>
             <label for="mp-chave">Access Token</label>
             <input id="mp-chave" type="password" autocomplete="off" spellcheck="false">
             <button class="acao" id="mp-chave-salvar" type="button">Conectar com a chave</button>
@@ -2096,6 +2257,20 @@
           <button class="acao claro" id="senha-trocar" type="button">Trocar senha</button>
           <div class="aviso" id="senha-aviso"></div>
         </div>
+        <div class="card">
+          <h2>Logo da loja</h2>
+          <p class="nota">O PDV encaixa o logo num quadrado com margem, sem cortar e sem estourar o círculo do login, do cupom e do cardápio.</p>
+          <div class="logo-anel" style="margin:12px auto">
+            <img id="logo-preview" src="/static/logo.png" alt="Logo da loja">
+          </div>
+          <label>Trocar o logo</label>
+          <input id="logo-arquivo" type="file" accept="image/png,image/jpeg,image/webp">
+          <div class="botoes-ficha">
+            <button class="acao" id="logo-salvar" type="button">Guardar logo ajustado</button>
+            <button class="acao claro" id="logo-ajustar" type="button">Só ajustar o logo atual</button>
+          </div>
+          <div class="aviso" id="logo-aviso"></div>
+        </div>
       </div>
     </section>
     <section class="painel" id="informativo">
@@ -2108,8 +2283,8 @@
           <li><strong>WhatsApp.</strong> Abra o balão verde Zap. Na primeira vez, leia o QR Code com o celular da loja. Depois aperte “Salvar contatos na agenda”.</li>
           <li><strong>iFood e 99Food.</strong> Abra o balão de cada um, aperte “Só abrir para ver os valores” e entre com o login da loja. A sessão fica salva.</li>
           <li><strong>Cardápio.</strong> Confira nomes, preços e fotos dos doces.</li>
-          <li><strong>Mercado Pago.</strong> Administrativo, aba Mercado Pago. Cole o Access Token e aperte “Conectar com a chave”. TEST- é só para treinar; APP_USR- é para valer. O balão azul MP mostra se está conectado.</li>
-          <li><strong>Taxas do Mercado Pago.</strong> Na mesma aba, confira as taxas de Pix, débito e crédito com o que aparece no aplicativo do Mercado Pago. Aperte “Guardar as taxas”.</li>
+          <li><strong>Mercado Pago.</strong> Administrativo, aba Mercado Pago. Em Credenciais de produção, copie só o Access Token (APP_USR-, o mais longo — não a Public Key). Cole na Opção A e conecte. Luz verde = ok. Leia também o cartão “Mercado Pago no dia a dia” neste Informativo.</li>
+          <li><strong>Taxas do Mercado Pago.</strong> Na mesma aba, confira as taxas de Pix, débito e crédito com o app. Aperte “Guardar as taxas”.</li>
           <li><strong>Precificação.</strong> Preencha Pró-labore e Casa. Na aba Precificação, abra o iFood e o 99Food pelos botões e copie os preços de verdade. Escolha Total ou Parcial e confira se algum doce dá prejuízo.</li>
           <li><strong>Venda de teste.</strong> Faça a venda de teste do cartão abaixo antes de atender a primeira cliente.</li>
         </ol>
@@ -2118,28 +2293,43 @@
         <h2>Tutorial da venda de teste no Mercado Pago</h2>
         <p class="nota">Com a chave TEST-, o QR e o link aparecem, mas nenhum banco paga: serve só para ver as telas. Para a venda de verdade, conecte a chave APP_USR-. Use um doce barato.</p>
         <ol class="tutorial-passos">
-          <li><strong>Conferir.</strong> O balão azul MP precisa dizer que está conectado.</li>
-          <li><strong>Caixa.</strong> Ponha como cliente quem vai pagar o teste (dono ou alguém da loja) e um doce barato.</li>
-          <li><strong>Pagamento.</strong> Escolha PIX integral e deixe marcado “Receber pelo Mercado Pago”. No e-mail da cliente, use um e-mail diferente do da conta Mercado Pago da loja.</li>
-          <li><strong>Taxa.</strong> Confira a linha “Taxa de serviço” antes do total.</li>
-          <li><strong>Finalizar.</strong> A venda fica “Esperando o Mercado Pago” e abre a cobrança com o QR Code e o copia e cola. Nada entra no caixa nem vai para a cozinha ainda.</li>
-          <li><strong>Pagar.</strong> Pague com outro banco ou outra conta. O Mercado Pago não deixa a loja pagar para ela mesma.</li>
-          <li><strong>Confirmar.</strong> Com a cobrança aberta, o PDV percebe o pagamento em poucos segundos; fechada, em até meio minuto. O cupom abre, a venda vai para a cozinha e o caixa recebe o valor sem a taxa.</li>
-          <li><strong>Cartão.</strong> Repita com Crédito ou Débito. O PDV gera o link; mande pelo WhatsApp e pague com cartão.</li>
-          <li><strong>Desfazer.</strong> No aplicativo do Mercado Pago, devolva o dinheiro do teste. Depois cancele a venda no PDV com o motivo “venda de teste”. O PDV não devolve dinheiro sozinho.</li>
+          <li><strong>Conferir.</strong> A luz e o balão MP precisam estar verdes (conectados).</li>
+          <li><strong>Caixa.</strong> Ponha como cliente quem vai pagar o teste e um doce barato. E-mail da cliente diferente do e-mail da conta Mercado Pago da loja.</li>
+          <li><strong>Pagamento.</strong> PIX integral com “Receber pelo Mercado Pago” marcado.</li>
+          <li><strong>Finalizar.</strong> A venda fica esperando. Use “Mandar no WhatsApp”: sai um PDF no padrão do cupom, com QR e chave clicável.</li>
+          <li><strong>Pagar.</strong> Pague com outro banco ou outra conta. A loja não pode pagar para ela mesma.</li>
+          <li><strong>Confirmar.</strong> O PDV abre o cupom, manda o PDF no WhatsApp da cliente e avisa a loja. A venda vai para a cozinha.</li>
+          <li><strong>Desfazer.</strong> No app do Mercado Pago, devolva o dinheiro. No PDV: Financeiro → Cancelar venda, motivo “venda de teste”.</li>
+        </ol>
+      </div>
+      <div class="card" id="info-mercado-pago-dia">
+        <h2>Mercado Pago no dia a dia</h2>
+        <p class="nota">Isto é o que mais importa depois que a chave já está conectada.</p>
+        <ol class="tutorial-passos">
+          <li><strong>Qual chave usar.</strong> Só o Access Token de produção (APP_USR-, o mais longo). Não use Public Key, Client ID nem Client Secret na Opção A.</li>
+          <li><strong>Site no cadastro.</strong> Se o Mercado Pago pedir site obrigatório, use o Instagram ou a página do iFood da loja. Não use 127.0.0.1.</li>
+          <li><strong>E-mail da cliente.</strong> Guarde na agenda. Explique: “É só para emitir o Pix com segurança; não mandamos propaganda.”</li>
+          <li><strong>Cobrança no WhatsApp.</strong> Pix, débito e crédito saem como PDF no mesmo padrão do cupom não fiscal, com link. No Pix, a cliente toca na chave para copiar.</li>
+          <li><strong>Quando o pagamento cai.</strong> Cupom abre sozinho, PDF vai no WhatsApp da cliente, aviso vai para a loja, venda entra no caixa e na cozinha.</li>
+          <li><strong>Deu erro e ainda não pagou.</strong> Financeiro → Esperando o Mercado Pago: “Abrir cobrança de novo” ou “Receber na loja”. Não precisa cancelar nem refazer a venda.</li>
+          <li><strong>Cliente desistiu.</strong> Financeiro → Cancelar venda, com motivo. Se o Pix já caiu, devolva no app do Mercado Pago. O PDV não devolve o dinheiro sozinho, mas quando o Mercado Pago confirmar o estorno ele registra, avisa a loja e guarda em Financeiro → Estornos.</li>
+          <li><strong>Pix e link vencidos.</strong> Pix: 30 minutos. Link de cartão: 24 horas. Use “Gerar de novo o que venceu”.</li>
+          <li><strong>Luz do MP.</strong> Verde = conectado. Vermelho = chave errada. Amarelo = o PDV enviou e o Mercado Pago não confirmou.</li>
         </ol>
       </div>
       <div class="card" id="info-ifood-api">
         <h2>Tutorial da API do iFood</h2>
-        <p class="nota">A API do iFood é de graça, mas o iFood libera só para aplicativo cadastrado no CNPJ da loja e aprovado por eles. Isso pode levar dias. Enquanto não liberar, o valor do dia continua sendo digitado. O 99Food não tem API aberta para loja; o valor dele continua digitado.</p>
+        <p class="nota">A API do iFood é de graça, mas o iFood libera só para aplicativo cadastrado no CNPJ da loja e aprovado por eles. Peça a liberação em chamados separados: Financeiro, Pedidos e Catálogo. Enquanto não liberar, digite o valor e abra o app. O 99Food continua digitado.</p>
         <ol class="tutorial-passos">
           <li><strong>Cadastro.</strong> Entre no Portal do Desenvolvedor do iFood com o CNPJ da loja e crie um aplicativo do tipo centralizado.</li>
-          <li><strong>Liberação.</strong> Abra um chamado no portal pedindo a API Financeira (vendas) e a API de Lojas para a Caminho dos Doces. O iFood faz a homologação e avisa.</li>
-          <li><strong>Autorizar a loja.</strong> No Portal do Parceiro, autorize o aplicativo para a loja. A permissão leva até 10 minutos para valer.</li>
-          <li><strong>Copiar a chave.</strong> No Portal do Desenvolvedor, copie o Client ID e o Client Secret do aplicativo.</li>
-          <li><strong>Ligar no PDV.</strong> Administrativo, aba iFood, cartão API do iFood. Cole o Client ID e o Client Secret e aperte “Ligar a API do iFood”. O Merchant ID pode ficar em branco: o PDV acha a loja sozinho.</li>
-          <li><strong>No fechamento.</strong> Na aba iFood, aperte “Buscar as vendas de hoje no iFood”. O PDV preenche o valor de vendas do dia, sem os cancelados, e mostra quanto o iFood calcula para a loja. Confira e salve na aba Banco.</li>
-          <li><strong>Desligar.</strong> “Desligar a API do iFood” apaga a chave deste computador.</li>
+          <li><strong>Liberação.</strong> Abra chamados pedindo: API Financeira (vendas e liquidação), API de Pedidos (events + order), API de Catálogo e API de Lojas. O iFood homologa e avisa.</li>
+          <li><strong>Autorizar a loja.</strong> No Portal do Parceiro, autorize o aplicativo. A permissão leva até 10 minutos.</li>
+          <li><strong>Ligar no PDV.</strong> Administrativo, aba iFood, API do iFood. Cole Client ID e Client Secret e aperte “Ligar a API do iFood”.</li>
+          <li><strong>Vendas do dia.</strong> “Buscar as vendas de hoje no iFood” preenche o valor do fechamento, sem cancelados.</li>
+          <li><strong>Pedidos.</strong> Com “Receber pedidos do iFood no PDV” marcado, o PDV olha o iFood a cada 30 segundos. Pedido novo vai para a cozinha. Com “Confirmar sozinho”, o PDV confirma no iFood. Quando a cozinha marca Pronto, o PDV avisa o iFood (e despacha se a loja entrega).</li>
+          <li><strong>Repasse.</strong> “Buscar repasses dos últimos 30 dias” mostra o que o iFood liquidou ou vai liquidar.</li>
+          <li><strong>Cardápio.</strong> “Conferir cardápio com o iFood” compara nomes e preços com o cardápio do PDV. Não altera o iFood sozinho.</li>
+          <li><strong>Gaveta.</strong> Pedido do iFood não entra na gaveta. O dinheiro entra no fechamento do iFood.</li>
         </ol>
       </div>
       <div class="card" id="info-dia">
@@ -2148,7 +2338,7 @@
         <ol class="tutorial-passos">
           <li><strong>De manhã.</strong> O PDV pergunta se o cardápio está completo e se o estoque do iFood e do 99Food bate com a cozinha.</li>
           <li><strong>Na encomenda.</strong> Sinal de 50% fica marcado como “Falta 50%”. Na entrega, ela escolhe dinheiro, PIX ou débito e aperta Recebi. O valor entra na gaveta.</li>
-          <li><strong>No depósito.</strong> Toque no mantimento, digite quanto pagou, quanto comprou e quanto entra numa receita. A frase embaixo mostra o custo.</li>
+          <li><strong>No depósito.</strong> Escolha a categoria, toque no mantimento, digite quanto pagou, quanto comprou, quanto entra numa receita e a validade. A frase embaixo mostra o custo. O que vence primeiro aparece primeiro.</li>
           <li><strong>À noite, depois das 22:30.</strong> A fileira pede, nesta ordem: vendas do iFood, vendas do 99Food, banco e contagem da gaveta. Digite, aperte Enter e salve. Se o dia zerou, use Não vendi hoje ou Conta zerada.</li>
           <li><strong>Para fechar.</strong> Com os passos prontos, o botão fica verde: Conferir e fechar. O caixa encerra.</li>
         </ol>
@@ -2172,10 +2362,11 @@
           <li>No misto, a primeira parte é digitada. O juro do crédito, se houver, cai só sobre a parte do cartão.</li>
           <li>Passar para o banco com R$ 0,00 não tira nada da gaveta nem muda a conta empresa.</li>
           <li>Débito também pode ser com sinal: 50% agora e 50% na entrega.</li>
-          <li>Mercado Pago: com a caixinha Receber pelo Mercado Pago marcada, o Pix sai em QR e copia e cola, e o cartão sai em link de pagamento. Dinheiro continua na gaveta.</li>
-          <li>Taxa de serviço: o que o Mercado Pago cobra entra no cupom, por conta da cliente, conforme a forma que ela escolher. As taxas ficam em Administrativo, aba Mercado Pago.</li>
-          <li>Venda pelo Mercado Pago só entra no caixa, vai para a cozinha e manda o cupom quando o pagamento cair. No sinal de 50%, o Mercado Pago cobra só os 50%.</li>
-          <li>O Pix vence em 30 minutos e o link em 24 horas. Venceu: Gerar de novo o que venceu. A cliente desistiu: cancele a venda.</li>
+          <li>Mercado Pago: com a caixinha marcada, Pix, débito e crédito saem pelo Mercado Pago. Dinheiro continua na gaveta.</li>
+          <li>Cobrança no WhatsApp: PDF no padrão do cupom (Pix com QR e chave clicável; cartão com botão de pagar). Detalhes no cartão “Mercado Pago no dia a dia”.</li>
+          <li>Taxa de serviço: o que o Mercado Pago cobra entra no cupom, por conta da cliente. As taxas ficam em Administrativo, aba Mercado Pago.</li>
+          <li>A venda só entra no caixa, na cozinha e manda o cupom quando o pagamento cair. No sinal de 50%, o Mercado Pago cobra só os 50%.</li>
+          <li>Pix vence em 30 minutos; link de cartão em 24 horas. Venceu: Gerar de novo. Erro sem pagamento: Financeiro → abrir cobrança de novo ou receber na loja. Desistiu: cancelar no Financeiro e, se já pagou, devolver no app do Mercado Pago — o PDV registra o estorno sozinho quando o Mercado Pago confirmar.</li>
         </ul>
       </div>
       <div class="card" id="info-clientes-novas">
@@ -2183,8 +2374,10 @@
         <ul>
           <li>Toda vez que o PDV abre e a loja entra, ele confere sozinho a agenda e os contatos do WhatsApp da loja.</li>
           <li>Conta como cliente nova: contato novo do WhatsApp e cliente que comprou pela primeira vez no balcão ou numa encomenda.</li>
+          <li>Telefone não se repete: cada número só pode existir uma vez na agenda. Números de grupos do WhatsApp não entram — só agenda do celular e conversa 1 a 1.</li>
+          <li>Para tirar alguém da agenda: botão Apagar na ficha ou em Organizar dados. As vendas antigas continuam no histórico.</li>
           <li>Se tiver cliente nova, aparece um aviso no topo com os nomes. "Ver na agenda" abre a agenda; "Já vi" tira a marca de todas.</li>
-          <li>Na agenda, as clientes novas ficam no começo da lista com o selo amarelo "Cliente nova". O selo sai no "Já vi" ou quando os dados dela são organizados.</li>
+          <li>Na agenda, as clientes novas ficam no começo da lista com o selo amarelo "Cliente nova". O selo sai no "Já vi" ou quando os dados dela são organizados. Guarde também o e-mail: o Mercado Pago pede para gerar o Pix. Diga à cliente que é só para a cobrança, sem propaganda.</li>
           <li>Se o WhatsApp do PDV estiver fechado, a conferência abre ele sozinha. Se ele pedir o QR Code, o aviso conta isso; leia com o celular da loja. A agenda é conferida do mesmo jeito.</li>
           <li>O botão "Salvar contatos na agenda" do balão do WhatsApp continua funcionando para conferir na hora que quiser.</li>
         </ul>
@@ -2218,11 +2411,22 @@
           <li>Quando o produto fica pronto, o aviso pede para ela ficar atenta. Motoboy e entrega particular dizem um tempo pelo CEP e pela taxa. Uber ou 99 pedem para a loja entrar em contato.</li>
         </ul>
       </div>
+      <div class="card" id="info-almoxarifado">
+        <h2>Regras do almoxarifado</h2>
+        <ul>
+          <li>Categorias: Secos, Frio (geladeira/freezer), Aromatizantes e corantes, Embalagens.</li>
+          <li>Ao guardar: anote quanto pagou, quanto veio, quanto entra numa receita e a validade. A lista segue PVPS — o que vence primeiro sai primeiro.</li>
+          <li>Etiqueta mental do PDV: nome, aberto em e validade. No físico, use pote fechado para farinha, açúcar e grãos.</li>
+          <li>Deixe os insumos fora do chão (pelo menos 15 cm) e separe frio de seco.</li>
+          <li>Selos vermelho/laranja na lista: vencido ou vence em até 7 dias. Use o filtro “Vencendo”.</li>
+        </ul>
+      </div>
       <div class="card" id="info-cozinha">
         <h2>Regras da cozinha</h2>
         <ul>
           <li>A venda fechada no caixa chega na cozinha com cliente, endereço, data, hora, pagamento e o momento do pedido.</li>
           <li>Verde é sem restrição. Vermelho é alergia ou restrição escrita na observação: alergia, intolerância, glúten, lactose, amendoim, castanha, nozes ou diabetes.</li>
+          <li>Cliente desistiu depois que a venda já está na cozinha: Financeiro → Cancelar venda. Se pagou pelo Mercado Pago, devolva no app; o PDV guarda o estorno em Financeiro quando o Mercado Pago confirmar.</li>
           <li>O produto está pronto monta o aviso. Mandar o aviso envia o WhatsApp e só então o pedido espera o fechamento no financeiro.</li>
           <li>Cancelar o aviso pede a senha da loja e a senha administrativa. As duas podem ser a mesma, até ela trocar a senha.</li>
         </ul>
@@ -2232,6 +2436,8 @@
         <p class="nota">Os números começam nestes valores. Ela troca quando o painel do aplicativo mostrar outro. O PDV não entra no iFood, no 99Food nem no Nubank.</p>
         <ul>
           <li>iFood Básico: comissão 12% e mensalidade R$ 110. Entrega: 23% e R$ 150. Pagamento pelo aplicativo soma 3,2%.</li>
+          <li>Cada desconto do iFood é porcentagem sobre as vendas: comissão, pagamento online e promoções da loja. A mensalidade é fixa no mês (R$ 110 no Básico, R$ 150 no Entrega) e só entra se o bruto do mês passar de R$ 1.800.</li>
+          <li>Para bater com o extrato: digite os R$ de cada linha e aperte “Passar o extrato para %”. O PDV grava a porcentagem (ex.: 221,83 ÷ 964,29 ≈ 23%).</li>
           <li>Repasse semanal do iFood sugere 1,59%, ou 1,49% na Conta Digital.</li>
           <li>99Food com a 99 entregando: comissão 8,9%. Com a loja entregando: 10,9%. Pagamento no aplicativo soma 3,2%. Mensalidade começa em R$ 0. Saque semanal ou diário sugere 1,59%.</li>
         </ul>
@@ -2256,7 +2462,7 @@
   <aside id="zap-painel">
     <div id="zap-topo">WhatsApp Web</div>
     <div id="zap-corpo">
-      <div id="zap-mensagem">Salve os contatos na agenda. Nome e telefone já ficam prontos para o atendimento.</div>
+      <div id="zap-mensagem">Salve os contatos na agenda. Só agenda do celular e conversas 1 a 1 — grupos ficam de fora. Telefone repetido não entra de novo.</div>
       <button class="acao" id="zap-contatos" type="button">Salvar contatos na agenda</button>
       <button class="acao claro" id="zap-abrir" type="button">Abrir conversa do cupom</button>
       <button class="acao claro" id="abrir-ifood" type="button">Abrir iFood da loja</button>
@@ -2397,10 +2603,12 @@
       const nums = chaveTelefone(texto);
       const buscaNome = !porTelefone && termo.length >= 2;
       const buscaFone = nums.length >= 4;
-      if (!buscaNome && !buscaFone) return [];
+      const buscaEmail = !porTelefone && termo.includes("@") && termo.length >= 3;
+      if (!buscaNome && !buscaFone && !buscaEmail) return [];
       const pontuados = [];
       clientesCache.forEach((cliente) => {
         const nome = semAcento(cliente.nome);
+        const email = semAcento(cliente.email || "");
         const fone = chaveTelefone(cliente.telefone);
         let pontos = 0;
         if (buscaFone) {
@@ -2413,6 +2621,11 @@
           else if (nome.startsWith(termo)) pontos = Math.max(pontos, 100 + termo.length);
           else if (nome.split(/\s+/).some((parte) => parte.startsWith(termo))) pontos = Math.max(pontos, 80 + termo.length);
           else if (nome.includes(termo)) pontos = Math.max(pontos, 40);
+        }
+        if (buscaEmail && email) {
+          if (email === termo) pontos = Math.max(pontos, 190);
+          else if (email.startsWith(termo)) pontos = Math.max(pontos, 110);
+          else if (email.includes(termo)) pontos = Math.max(pontos, 70);
         }
         if (pontos) pontuados.push({ cliente, pontos, nome });
       });
@@ -2772,6 +2985,7 @@
       });
       if ([...produto.options].some((op) => op.value === atual)) produto.value = atual;
       mostrarFotoDoce();
+      aplicarMinimoDoce();
     }
 
     function ampliarFoto(src, alt) {
@@ -2796,14 +3010,30 @@
       imagem.alt = item.nome;
     }
 
+    function aplicarMinimoDoce() {
+      const item = cardapioCache.find((entrada) => entrada.id === produto.value);
+      const campo = document.getElementById("qtd");
+      const minimo = Math.max(0, Number(item?.minimo) || 0);
+      campo.min = Math.max(1, minimo || 1);
+      if (minimo > 0 && (Number(campo.value) || 0) < minimo) campo.value = String(minimo);
+    }
+
+    produto.addEventListener("change", () => {
+      mostrarFotoDoce();
+      aplicarMinimoDoce();
+    });
+
     document.getElementById("adicionar").onclick = () => {
       const item = cardapioCache.find((entrada) => entrada.id === produto.value);
       if (!item) return aviso("Escolha um item do cardápio.", false);
-      const qtd = Math.max(1, Number(document.getElementById("qtd").value) || 1);
+      const minimo = Math.max(0, Number(item.minimo) || 0);
+      let qtd = Math.max(1, Number(document.getElementById("qtd").value) || 1);
+      if (minimo > 0 && qtd < minimo) {
+        return aviso(`${item.nome} pede no mínimo ${minimo} unidades.`, false);
+      }
       carrinho.push({ productId: item.id, productName: item.nome, quantity: qtd, unitPrice: item.preco });
       desenharCarrinho();
     };
-    produto.onchange = mostrarFotoDoce;
     document.getElementById("foto-doce").onclick = () => {
       const imagem = document.getElementById("foto-doce");
       ampliarFoto(imagem.src, imagem.alt);
@@ -2864,6 +3094,7 @@
       document.getElementById("sobrenome").value = partes.sobrenome;
       document.getElementById("telefone").value = formatarTelefone(cliente.telefone);
       document.getElementById("cpf").value = cliente.cpf ? formatarCpf(cliente.cpf) : "";
+      document.getElementById("email-cliente").value = cliente.email || "";
       document.getElementById("endereco").value = cliente.endereco || "";
       document.getElementById("cep").value = cliente.cep ? formatarCep(cliente.cep) : "";
       if (digitos(cliente.cep || "").length === 8) buscarDistancia();
@@ -2885,6 +3116,7 @@
       document.getElementById("org-sobrenome").value = partes.sobrenome;
       document.getElementById("org-telefone").value = formatarTelefone(cliente.telefone);
       document.getElementById("org-cpf").value = cliente.cpf ? formatarCpf(cliente.cpf) : "";
+      document.getElementById("org-email").value = cliente.email || "";
       document.getElementById("org-endereco").value = cliente.endereco || "";
       document.getElementById("org-perfil").textContent = historicoCliente(cliente.telefone);
       document.getElementById("org-observacoes").value = cliente.observacoes || "";
@@ -2899,7 +3131,7 @@
       const clientes = termoSimples.length >= 2 || chaveTelefone(termo).length >= 4
         ? sugestoesContato(termo, false, 12)
         : clientesCache.filter((cliente) => {
-          const texto = semAcento(`${cliente.nome} ${cliente.telefone} ${cliente.endereco || ""}`);
+          const texto = semAcento(`${cliente.nome} ${cliente.telefone} ${cliente.email || ""} ${cliente.endereco || ""}`);
           return texto.includes(termoSimples);
         }).sort((a, b) => (b.novo ? 1 : 0) - (a.novo ? 1 : 0));
       const alvoClientes = document.getElementById("lista-clientes");
@@ -2913,6 +3145,7 @@
             <h3>${escapar(cliente.nome)} ${cliente.novo ? `<span class="selo novo">Cliente nova</span>` : ""} <span class="selo ${cliente.organizado ? "pago" : ""}">${cliente.organizado ? "Dados organizados" : "Completar dados"}</span></h3>
             <div class="grade-ficha">
               ${linhaFicha("Telefone", escapar(formatarTelefone(cliente.telefone)))}
+              ${linhaFicha("E-mail", escapar(cliente.email || ""))}
               ${linhaFicha("CPF", escapar(cliente.cpf))}
               ${linhaFicha("Origem", escapar(cliente.origem))}
               ${linhaFicha("Endereço", escapar(cliente.endereco))}
@@ -2922,6 +3155,7 @@
             <div class="botoes-ficha">
               <button class="mini" type="button" data-atender="${escapar(cliente.id)}">Atender</button>
               <button class="mini" type="button" data-organizar="${escapar(cliente.id)}">Organizar dados</button>
+              <button class="mini" type="button" data-apagar-cliente="${escapar(cliente.id)}">Apagar</button>
             </div>
           </article>
         `).join("");
@@ -2930,6 +3164,9 @@
         });
         alvoClientes.querySelectorAll("[data-organizar]").forEach((botao) => {
           botao.onclick = () => abrirOrganizar(clientesCache.find((cliente) => cliente.id === botao.dataset.organizar));
+        });
+        alvoClientes.querySelectorAll("[data-apagar-cliente]").forEach((botao) => {
+          botao.onclick = () => apagarContatoAgenda(botao.dataset.apagarCliente);
         });
       }
       const lista = pedidosCache.filter((p) => {
@@ -3020,8 +3257,28 @@
     }
 
     function textoEnvioMp(p, parte) {
-      if (parte.tipo === "PIX") return `Olá, ${p.nome}! Segue o Pix do seu pedido ${p.orderId} na Caminho dos Doces, de ${dinheiro(parte.valor)}. Copie o código abaixo e cole no app do banco, em Pix copia e cola. Ele vale 30 minutos.\n\n${parte.qrCode}`;
+      if (parte.tipo === "PIX") {
+        return `Olá, ${p.nome}! Segue a cobrança Pix do pedido ${p.orderId} na Caminho dos Doces.`;
+      }
       return `Olá, ${p.nome}! Segue o link para pagar o seu pedido ${p.orderId} na Caminho dos Doces, de ${dinheiro(parte.valor)} no ${parte.forma.toLowerCase()}, pelo Mercado Pago:\n\n${parte.link}`;
+    }
+
+    async function copiarTextoMp(texto, alvo) {
+      try {
+        await navigator.clipboard.writeText(texto);
+      } catch (erro) {
+        const area = document.createElement("textarea");
+        area.value = texto;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }
+      if (alvo) {
+        alvo.classList.add("copiado");
+        setTimeout(() => alvo.classList.remove("copiado"), 1600);
+      }
+      avisoPixMp("Chave Pix copiada. Já pode colar no banco.", "ok");
     }
 
     function desenharCobrancaMp(estado) {
@@ -3034,24 +3291,28 @@
           <strong>${escapar(parte.forma)}: ${dinheiro(parte.valor)}</strong>
           <div class="nota">${escapar(parte.statusTexto)}</div>
           ${parte.qrBase64 ? `<img class="mp-qr" alt="QR do Pix" src="data:image/png;base64,${parte.qrBase64}">` : ""}
-          ${parte.qrCode ? `<textarea class="mp-codigo" readonly rows="3">${escapar(parte.qrCode)}</textarea>` : ""}
-          ${parte.link ? `<textarea class="mp-codigo" readonly rows="2">${escapar(parte.link)}</textarea>` : ""}
+          ${parte.qrCode ? `
+            <p class="mp-codigo-dica">Toque na chave abaixo para copiar</p>
+            <button type="button" class="mp-codigo" data-mp-copiar-chave="${parte.indice}" title="Toque para copiar">${escapar(parte.qrCode)}</button>` : ""}
+          ${parte.link ? `
+            <p class="mp-codigo-dica">Toque no link abaixo para copiar</p>
+            <button type="button" class="mp-codigo" data-mp-copiar-chave="${parte.indice}" title="Toque para copiar">${escapar(parte.link)}</button>` : ""}
           ${parte.qrCode || parte.link ? `
             <button class="mini" type="button" data-mp-copiar="${parte.indice}">Copiar</button>
             <button class="mini" type="button" data-mp-zap="${parte.indice}">Mandar no WhatsApp</button>` : ""}
         </div>`).join("");
+      const copiarParte = async (indice, el) => {
+        const parte = estado.partes.find((item) => String(item.indice) === String(indice));
+        if (!parte) return;
+        await copiarTextoMp(parte.qrCode || parte.link, el);
+      };
+      alvo.querySelectorAll("[data-mp-copiar-chave]").forEach((botao) => {
+        botao.onclick = () => copiarParte(botao.dataset.mpCopiarChave, botao);
+      });
       alvo.querySelectorAll("[data-mp-copiar]").forEach((botao) => {
-        botao.onclick = async () => {
-          const parte = estado.partes.find((item) => String(item.indice) === botao.dataset.mpCopiar);
-          const texto = parte.qrCode || parte.link;
-          try {
-            await navigator.clipboard.writeText(texto);
-          } catch (erro) {
-            const campo = botao.parentElement.querySelector("textarea");
-            campo.select();
-            document.execCommand("copy");
-          }
-          avisoPixMp("Copiado.", "ok");
+        botao.onclick = () => {
+          const chave = botao.parentElement.querySelector("[data-mp-copiar-chave]");
+          copiarParte(botao.dataset.mpCopiar, chave);
         };
       });
       alvo.querySelectorAll("[data-mp-zap]").forEach((botao) => {
@@ -3059,8 +3320,23 @@
           const parte = estado.partes.find((item) => String(item.indice) === botao.dataset.mpZap);
           botao.disabled = true;
           try {
-            await abrirWhatsappNoComputador(p.telefone, textoEnvioMp(p, parte), "");
-            avisoPixMp("Mandado no WhatsApp da cliente.", "ok");
+            const rotulo = parte.tipo === "PIX" ? "Pix" : (parte.forma || "cartão");
+            avisoPixMp(`Montando a cobrança de ${rotulo} no padrão do cupom e mandando no WhatsApp…`, "");
+            const corpo = await abrirWhatsappNoComputador(
+              p.telefone,
+              textoEnvioMp(p, parte),
+              "",
+              "",
+              parte.qrCode || "",
+              p.orderId,
+              parte.indice
+            );
+            avisoPixMp(
+              corpo.link
+                ? `Cobrança de ${rotulo} mandada como cupom. A cliente abre o link para pagar ou copiar.`
+                : `Cobrança de ${rotulo} mandada no WhatsApp.`,
+              "ok"
+            );
           } catch (erro) {
             avisoPixMp(erro.message, "erro");
           } finally {
@@ -3070,10 +3346,24 @@
       });
     }
 
+    const avisosMpFeitos = new Set();
+
+    async function marcarAvisoMpVisto(orderId) {
+      try {
+        await fetch(`/api/pedidos/${encodeURIComponent(orderId)}/mercadopago/aviso-visto`, { method: "POST" });
+      } catch (erro) {
+        /* segue mesmo assim */
+      }
+    }
+
     function vendaPagaMp(pedido) {
+      if (!pedido || !pedido.orderId) return;
+      if (avisosMpFeitos.has(pedido.orderId)) return;
+      avisosMpFeitos.add(pedido.orderId);
       pararCobrancaMp();
       document.getElementById("mp-fundo").classList.remove("aberto");
-      aviso(`Pagamento da venda ${pedido.orderId} caiu no Mercado Pago. Entrou no caixa e foi para a cozinha.`, true);
+      aviso(`Pagamento da venda ${pedido.orderId} caiu no Mercado Pago. Entrou no caixa e foi para a cozinha. Abrindo o cupom e mandando no WhatsApp…`, true);
+      marcarAvisoMpVisto(pedido.orderId);
       carregarListas();
       abrirCupom(pedido);
       carregarRobo();
@@ -3086,7 +3376,7 @@
         const resposta = await fetch(`/api/pedidos/${encodeURIComponent(cobrancaMpPedido.orderId)}/mercadopago`, { method: metodo });
         const corpo = await resposta.json();
         if (!resposta.ok) throw new Error(typeof corpo.detail === "string" ? corpo.detail : "O Mercado Pago não respondeu.");
-        if (corpo.efetivouAgora) return vendaPagaMp(corpo.pedido);
+        if (corpo.efetivouAgora || corpo.avisoPagamentoPendente) return vendaPagaMp(corpo.pedido);
         if (!corpo.aguardando) {
           pararCobrancaMp();
           avisoPixMp("Esta venda já está paga.", "ok");
@@ -3106,26 +3396,100 @@
       document.getElementById("mp-fundo").classList.add("aberto");
       pedirCobrancaMp("POST").then(() => {
         if (document.getElementById("mp-fundo").classList.contains("aberto")) {
-          avisoPixMp("O PDV confere sozinho a cada 5 segundos.", "");
-          cobrancaMpRelogio = setInterval(() => pedirCobrancaMp("GET"), 5000);
+          avisoPixMp("O PDV confere sozinho a cada 4 segundos.", "");
+          cobrancaMpRelogio = setInterval(() => pedirCobrancaMp("GET"), 4000);
         }
       });
     }
 
     async function conferirEsperasMp() {
-      if (fantasmaLigado() || !taxasMp.conectado || cobrancaMpRelogio) return;
-      for (const pedido of (Array.isArray(pedidosCache) ? pedidosCache : []).filter(esperaMp)) {
+      if (fantasmaLigado() || !taxasMp.conectado) return;
+      const lista = (Array.isArray(pedidosCache) ? pedidosCache : []);
+      const candidatos = lista.filter((p) => esperaMp(p) || (p.pagoMercadoPagoEm && p.avisoPagamentoPendente));
+      for (const pedido of candidatos) {
+        if (avisosMpFeitos.has(pedido.orderId)) continue;
+        if (cobrancaMpRelogio && cobrancaMpPedido && cobrancaMpPedido.orderId === pedido.orderId) continue;
         try {
           const resposta = await fetch(`/api/pedidos/${encodeURIComponent(pedido.orderId)}/mercadopago`);
           const corpo = await resposta.json();
-          if (resposta.ok && corpo.efetivouAgora) vendaPagaMp(corpo.pedido);
+          if (resposta.ok && (corpo.efetivouAgora || corpo.avisoPagamentoPendente)) vendaPagaMp(corpo.pedido);
         } catch (erro) {
           return;
         }
       }
     }
 
-    setInterval(conferirEsperasMp, 30000);
+    setInterval(conferirEsperasMp, 8000);
+
+    const avisosEstornoFeitos = new Set();
+
+    function desenharEstornosMp(dados) {
+      const vigilancia = Array.isArray(dados?.vigilancia) ? dados.vigilancia : [];
+      const estornos = Array.isArray(dados?.estornos) ? dados.estornos : [];
+      const listaVig = document.getElementById("lista-vigilancia-mp");
+      const listaEst = document.getElementById("lista-estornos-mp");
+      if (!listaVig || !listaEst) return;
+      listaVig.className = vigilancia.length ? "" : "vazio";
+      listaVig.innerHTML = vigilancia.length
+        ? `<table><tr><th>Venda</th><th>Aguardando</th><th>Valor</th></tr>${
+            vigilancia.map((item) => `<tr>
+              <td>${escapar(item.orderId)}<br>${escapar(item.nome || "")}</td>
+              <td>Devolução no app do Mercado Pago${item.motivoCancelamento ? `<br>Motivo do cancelamento: ${escapar(item.motivoCancelamento)}` : ""}<br><span class="nota">Desde ${escapar(item.canceladoEm || "")}</span></td>
+              <td>${dinheiro(item.valor)}</td>
+            </tr>`).join("")
+          }</table>`
+        : "Nenhuma devolução aguardando confirmação.";
+      listaEst.className = estornos.length ? "" : "vazio";
+      listaEst.innerHTML = estornos.length
+        ? `<table><tr><th>Quando</th><th>Registro</th><th>Valor</th></tr>${
+            estornos.map((item) => `<tr>
+              <td>${escapar(item.detectadoEm || "")}</td>
+              <td>${escapar(item.id)} · ${escapar(item.orderId)} — ${escapar(item.nome || "")}<br>${escapar(item.forma || "Mercado Pago")} · id MP ${escapar(item.pagamentoId || "")}${item.nota ? `<br><span class="nota">${escapar(item.nota)}</span>` : ""}</td>
+              <td>${dinheiro(item.valor)}</td>
+            </tr>`).join("")
+          }</table>`
+        : "Nenhum estorno registrado ainda.";
+    }
+
+    async function marcarAvisoEstornoVisto(estornoId) {
+      try {
+        await fetch(`/api/mercadopago/estornos/${encodeURIComponent(estornoId)}/aviso-visto`, { method: "POST" });
+      } catch (erro) {
+        /* segue */
+      }
+    }
+
+    function avisarEstornoMp(registro) {
+      if (!registro || !registro.id || avisosEstornoFeitos.has(registro.id)) return;
+      avisosEstornoFeitos.add(registro.id);
+      const caixaAviso = document.getElementById("aviso-estorno-mp");
+      if (caixaAviso) {
+        caixaAviso.textContent = `Estorno confirmado: ${registro.orderId} — ${registro.nome || ""} · ${dinheiro(registro.valor)}. Ficou registrado para prova.`;
+        caixaAviso.className = "aviso ok";
+      }
+      aviso(
+        `Estorno do Mercado Pago confirmado na venda ${registro.orderId} (${dinheiro(registro.valor)}). Registrado no Financeiro para prova.`,
+        true
+      );
+      marcarAvisoEstornoVisto(registro.id);
+    }
+
+    async function conferirEstornosMp() {
+      if (fantasmaLigado() || !taxasMp.conectado) return;
+      try {
+        const resposta = await fetch("/api/mercadopago/estornos");
+        const corpo = await resposta.json();
+        if (!resposta.ok) return;
+        desenharEstornosMp(corpo);
+        (corpo.novos || corpo.avisos || []).forEach(avisarEstornoMp);
+        if ((corpo.novos || []).length) carregarListas();
+      } catch (erro) {
+        /* rede */
+      }
+    }
+
+    setInterval(conferirEstornosMp, 12000);
+    conferirEstornosMp();
 
     function cupomFiscal(p) {
       return p && p.cupomTipo === "FISCAL";
@@ -3273,11 +3637,19 @@
       document.getElementById("zap-painel").classList.add("aberto");
     }
 
-    async function abrirWhatsappNoComputador(telefone, texto, pedido) {
+    async function abrirWhatsappNoComputador(telefone, texto, pedido, imagem, pixCodigo, cobrancaOrderId, cobrancaParte) {
       const resposta = await fetch("/api/whatsapp/abrir", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telefone: telefone || "", texto: texto || "", pedido: pedido || "" })
+        body: JSON.stringify({
+          telefone: telefone || "",
+          texto: texto || "",
+          pedido: pedido || "",
+          imagem: imagem || "",
+          pixCodigo: pixCodigo || "",
+          cobrancaOrderId: cobrancaOrderId || "",
+          cobrancaParte: Number(cobrancaParte) || 0
+        })
       });
       const corpo = await resposta.json();
       if (!resposta.ok) throw new Error(corpo.detail || "Não foi possível abrir o WhatsApp.");
@@ -3463,6 +3835,33 @@
     document.getElementById("org-telefone").addEventListener("input", (evento) => {
       evento.target.value = formatarTelefone(evento.target.value);
     });
+    async function apagarContatoAgenda(clienteId) {
+      const avisoOrg = document.getElementById("org-aviso");
+      const cliente = clientesCache.find((item) => item.id === clienteId);
+      if (!clienteId || !cliente) return;
+      if (!confirm(`Apagar o contato ${cliente.nome || ""} (${formatarTelefone(cliente.telefone || "")}) da agenda? As vendas antigas continuam no histórico.`)) {
+        return;
+      }
+      const resposta = await fetch(`/api/clientes/${encodeURIComponent(clienteId)}`, { method: "DELETE" });
+      const corpo = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        if (avisoOrg && document.getElementById("org-id").value === clienteId) {
+          avisoOrg.textContent = corpo.detail || "Não foi possível apagar.";
+          avisoOrg.className = "aviso erro";
+        } else {
+          aviso(corpo.detail || "Não foi possível apagar o contato.", false);
+        }
+        return;
+      }
+      if (document.getElementById("org-id").value === clienteId) {
+        document.getElementById("organizar").hidden = true;
+        document.getElementById("org-id").value = "";
+      }
+      agendaSelecionada = "";
+      await carregarListas();
+      aviso(`Contato ${cliente.nome || ""} apagado da agenda.`, true);
+    }
+
     document.getElementById("org-salvar").onclick = async () => {
       const id = document.getElementById("org-id").value;
       const avisoOrg = document.getElementById("org-aviso");
@@ -3486,6 +3885,7 @@
           nome: `${document.getElementById("org-nome").value.trim()} ${document.getElementById("org-sobrenome").value.trim()}`.trim(),
           telefone: document.getElementById("org-telefone").value,
           cpf,
+          email: document.getElementById("org-email").value.trim(),
           endereco: document.getElementById("org-endereco").value,
           observacoes: document.getElementById("org-observacoes").value
         })
@@ -3496,9 +3896,13 @@
         avisoOrg.className = "aviso erro";
         return;
       }
-      avisoOrg.textContent = "Dados salvos na agenda. No atendimento, nome e telefone já vêm preenchidos.";
+      avisoOrg.textContent = "Dados salvos na agenda. No atendimento, nome, telefone e e-mail já vêm preenchidos.";
       avisoOrg.className = "aviso ok";
       await carregarListas();
+    };
+    document.getElementById("org-apagar").onclick = () => {
+      const id = document.getElementById("org-id").value;
+      if (id) apagarContatoAgenda(id);
     };
 
     function avisoCardapio(texto, ok) {
@@ -3520,6 +3924,88 @@
       return manterVazios ? itens : itens.filter((item) => item.nome);
     }
 
+    let cardapioExcluirIndices = null;
+
+    function fecharSenhaCardapio() {
+      cardapioExcluirIndices = null;
+      document.getElementById("cardapio-senha-bloco").hidden = true;
+      document.getElementById("cardapio-senha-admin").value = "";
+      document.getElementById("cardapio-senha-texto").textContent = "Digite a senha do Administrativo para excluir.";
+    }
+
+    async function salvarCardapioAgora(mensagemOk) {
+      const itens = lerCardapioDaTela();
+      const resposta = await fetch("/api/cardapio", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itens })
+      });
+      const corpo = await resposta.json();
+      if (!resposta.ok) {
+        avisoCardapio(corpo.detail || "Não foi possível salvar o cardápio.", false);
+        return false;
+      }
+      cardapioCache = corpo;
+      desenharCardapio();
+      preencherProdutos();
+      const textoSalvo = mensagemOk || "Cardápio salvo. O caixa e o próximo PDF já usam estes preços.";
+      avisoCardapio(textoSalvo, true);
+      mostrarZap(textoSalvo);
+      document.getElementById("cardapio-aviso").scrollIntoView({ behavior: "smooth", block: "center" });
+      return true;
+    }
+
+    function pedirSenhaExcluirCardapio(indices) {
+      if (!indices.length) {
+        avisoCardapio("Marque pelo menos um item para excluir.", false);
+        return;
+      }
+      cardapioExcluirIndices = indices.slice().sort((a, b) => b - a);
+      const qtd = indices.length;
+      document.getElementById("cardapio-senha-texto").textContent = qtd === 1
+        ? "Digite a senha do Administrativo para excluir este item."
+        : `Digite a senha do Administrativo para excluir ${qtd} itens.`;
+      document.getElementById("cardapio-senha-bloco").hidden = false;
+      document.getElementById("cardapio-senha-admin").value = "";
+      document.getElementById("cardapio-senha-admin").focus();
+      document.getElementById("cardapio-senha-bloco").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    async function confirmarExclusaoCardapio() {
+      const senhaAdmin = document.getElementById("cardapio-senha-admin").value.trim();
+      if (!senhaAdmin) {
+        avisoCardapio("Digite a senha do Administrativo.", false);
+        return;
+      }
+      if (!cardapioExcluirIndices || !cardapioExcluirIndices.length) {
+        fecharSenhaCardapio();
+        return;
+      }
+      const resposta = await fetch("/api/loja/senha", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senha: senhaAdmin, senhaAdmin })
+      });
+      const corpo = await resposta.json();
+      if (!resposta.ok) {
+        avisoCardapio(corpo.detail || "A senha do Administrativo não confere.", false);
+        return;
+      }
+      const indices = cardapioExcluirIndices;
+      const qtd = indices.length;
+      fecharSenhaCardapio();
+      cardapioCache = lerCardapioDaTela(true);
+      indices.forEach((indice) => {
+        if (indice >= 0 && indice < cardapioCache.length) cardapioCache.splice(indice, 1);
+      });
+      desenharCardapio();
+      await salvarCardapioAgora(
+        qtd === 1
+          ? "Item excluído e cardápio salvo."
+          : `${qtd} itens excluídos e cardápio salvo.`
+      );
+    }
+
     function desenharCardapio() {
       const lista = document.getElementById("lista-cardapio");
       if (!cardapioCache.length) {
@@ -3528,6 +4014,9 @@
       }
       lista.innerHTML = cardapioCache.map((item, indice) => `
         <div class="linha-cardapio" data-item-cardapio="${escapar(item.id)}" data-foto="${escapar(item.foto || "")}">
+          <div class="check-excluir">
+            <input data-campo="selecionar" type="checkbox" title="Selecionar para excluir" aria-label="Selecionar ${escapar(item.nome || "item")}">
+          </div>
           <img class="foto-item" src="${escapar(item.foto || "/static/fotos/generica.jpg")}" alt="${escapar(item.nome || "Doce")}">
           <div>
             ${indice === 0 ? "<label>Item</label>" : ""}
@@ -3538,8 +4027,8 @@
             <input data-campo="preco" inputmode="decimal" value="${precoTexto(item.preco)}">
           </div>
           <div>
-            ${indice === 0 ? "<label>Mín.</label>" : ""}
-            <input data-campo="minimo" inputmode="numeric" value="${item.minimo || 0}">
+            ${indice === 0 ? "<label>Qtd mínima</label>" : ""}
+            <input data-campo="minimo" type="number" min="0" step="1" value="${Number(item.minimo) || 0}">
           </div>
           <div>
             ${indice === 0 ? "<label>Observação</label>" : ""}
@@ -3547,16 +4036,12 @@
           </div>
           <div>
             <label class="check-ativo"><input data-campo="ativo" type="checkbox" ${item.ativo === false ? "" : "checked"}> No caixa</label>
-            <button class="mini" type="button" data-tirar-item="${indice}">tirar</button>
+            <button class="mini" type="button" data-excluir-item="${indice}">excluir</button>
           </div>
         </div>
       `).join("");
-      lista.querySelectorAll("[data-tirar-item]").forEach((botao) => {
-        botao.onclick = () => {
-          cardapioCache = lerCardapioDaTela(true);
-          cardapioCache.splice(Number(botao.dataset.tirarItem), 1);
-          desenharCardapio();
-        };
+      lista.querySelectorAll("[data-excluir-item]").forEach((botao) => {
+        botao.onclick = () => pedirSenhaExcluirCardapio([Number(botao.dataset.excluirItem)]);
       });
       lista.querySelectorAll(".foto-item").forEach((imagem) => {
         imagem.onclick = () => ampliarFoto(imagem.src, imagem.alt);
@@ -3574,22 +4059,26 @@
       evento.target.value = formatarTelefone(evento.target.value);
     });
     document.getElementById("cardapio-salvar").onclick = async () => {
-      const itens = lerCardapioDaTela();
-      const resposta = await fetch("/api/cardapio", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itens })
-      });
-      const corpo = await resposta.json();
-      if (!resposta.ok) return avisoCardapio(corpo.detail || "Não foi possível salvar o cardápio.", false);
-      cardapioCache = corpo;
-      desenharCardapio();
-      preencherProdutos();
-      const textoSalvo = "Cardápio salvo. O caixa e o próximo PDF já usam estes preços.";
-      avisoCardapio(textoSalvo, true);
-      mostrarZap(textoSalvo);
-      document.getElementById("cardapio-aviso").scrollIntoView({ behavior: "smooth", block: "center" });
+      await salvarCardapioAgora();
     };
+    document.getElementById("cardapio-excluir-sel").onclick = () => {
+      cardapioCache = lerCardapioDaTela(true);
+      const indices = [...document.querySelectorAll("#lista-cardapio [data-campo=selecionar]")]
+        .map((caixa, indice) => (caixa.checked ? indice : -1))
+        .filter((indice) => indice >= 0);
+      pedirSenhaExcluirCardapio(indices);
+    };
+    document.getElementById("cardapio-senha-ok").onclick = confirmarExclusaoCardapio;
+    document.getElementById("cardapio-senha-cancelar").onclick = () => {
+      fecharSenhaCardapio();
+      avisoCardapio("Exclusão cancelada.", true);
+    };
+    document.getElementById("cardapio-senha-admin").addEventListener("keydown", (evento) => {
+      if (evento.key === "Enter") {
+        evento.preventDefault();
+        confirmarExclusaoCardapio();
+      }
+    });
     document.getElementById("cardapio-enviar").onclick = async () => {
       const telefone = document.getElementById("cardapio-telefone").value || document.getElementById("telefone").value;
       if (!digitos(telefone)) return avisoCardapio("Informe o WhatsApp que vai receber o cardápio.", false);
@@ -3664,8 +4153,8 @@
         { id: "TX-EX-MOTO", canal: "MOTOBOY", valor: 15, observacao: "Corrida extra — exemplo", criadoEm: "13/10/2026 18:40" }
       ],
       almox: [
-        { id: "ALM-EX-FAR", cupom: "8841", item: "Farinha", valor: 12, quantidade: 1000, unidade: "g", uso: 200, rendimento: 5, sobra: 0, custoPorcao: 2.4, usos: ["01/10/2026 11:00", "08/10/2026 15:20"] },
-        { id: "ALM-EX-LEITE", cupom: "8841", item: "Leite condensado", valor: 18, quantidade: 395, unidade: "g", uso: 79, rendimento: 5, sobra: 0, custoPorcao: 3.6, usos: ["08/10/2026 15:20"] }
+        { id: "ALM-EX-FAR", cupom: "8841", item: "Farinha", categoria: "SECOS", categoriaNome: "Secos e graduados", valor: 12, quantidade: 1000, unidade: "g", uso: 200, rendimento: 5, sobra: 0, custoPorcao: 2.4, validade: "20/10/2026", abertoEm: "01/10/2026", statusValidade: "VENCE_LOGO", diasParaVencer: 5, usos: ["01/10/2026 11:00", "08/10/2026 15:20"] },
+        { id: "ALM-EX-LEITE", cupom: "8841", item: "Leite condensado", categoria: "FRIO", categoriaNome: "Refrigerados e congelados", valor: 18, quantidade: 395, unidade: "g", uso: 79, rendimento: 5, sobra: 0, custoPorcao: 3.6, validade: "30/11/2026", abertoEm: "08/10/2026", statusValidade: "OK", diasParaVencer: 46, usos: ["08/10/2026 15:20"] }
       ],
       fornada: { id: "FOR-EX", doce: "Biscoito Amanteigado (M)", quantidade: 12, mantimentos: ["Farinha", "Leite condensado"], custo: 6, criadoEm: "13/10/2026 18:40", exemplo: true },
       bancos: {
@@ -3756,6 +4245,8 @@
       document.getElementById("gaveta-salvar").disabled = true;
       document.getElementById("passar-banco").disabled = true;
       document.getElementById("senha-trocar").disabled = true;
+      document.getElementById("logo-salvar").disabled = true;
+      document.getElementById("logo-ajustar").disabled = true;
       document.getElementById("corrida-lancar").disabled = true;
       document.getElementById("diaria-lancar").disabled = true;
       document.getElementById("reserva-lancar").disabled = true;
@@ -3782,6 +4273,8 @@
       document.getElementById("gaveta-salvar").disabled = false;
       document.getElementById("passar-banco").disabled = false;
       document.getElementById("senha-trocar").disabled = false;
+      document.getElementById("logo-salvar").disabled = false;
+      document.getElementById("logo-ajustar").disabled = false;
       document.getElementById("corrida-lancar").disabled = false;
       document.getElementById("diaria-lancar").disabled = false;
       document.getElementById("reserva-lancar").disabled = false;
@@ -3866,22 +4359,107 @@
       desenharProlabore();
     }
 
+    const ALMOX_ATALHOS = {
+      SECOS: [
+        { nome: "Farinha de trigo", unidade: "g" },
+        { nome: "Açúcar refinado", unidade: "g" },
+        { nome: "Açúcar de confeiteiro", unidade: "g" },
+        { nome: "Açúcar mascavo", unidade: "g" },
+        { nome: "Amido de milho", unidade: "g" },
+        { nome: "Fermento químico", unidade: "g" },
+        { nome: "Bicarbonato de sódio", unidade: "g" },
+        { nome: "Cacau em pó", unidade: "g" },
+        { nome: "Chocolate ao leite", unidade: "g" },
+        { nome: "Chocolate amargo", unidade: "g" },
+        { nome: "Chocolate branco", unidade: "g" },
+        { nome: "Castanha-de-caju", unidade: "g" },
+        { nome: "Granulado", unidade: "g" },
+        { nome: "Outro seco", unidade: "g", livre: true }
+      ],
+      FRIO: [
+        { nome: "Leite condensado", unidade: "g" },
+        { nome: "Creme de leite", unidade: "g" },
+        { nome: "Manteiga", unidade: "g" },
+        { nome: "Leite", unidade: "ml" },
+        { nome: "Ovos", unidade: "un" },
+        { nome: "Cream cheese", unidade: "g" },
+        { nome: "Polpa de fruta", unidade: "g" },
+        { nome: "Outro frio", unidade: "g", livre: true }
+      ],
+      ADITIVOS: [
+        { nome: "Extrato de baunilha", unidade: "ml" },
+        { nome: "Essência", unidade: "ml" },
+        { nome: "Corante em gel", unidade: "un" },
+        { nome: "Corante em pó", unidade: "g" },
+        { nome: "Óleo vegetal", unidade: "ml" },
+        { nome: "Gelatina sem sabor", unidade: "g" },
+        { nome: "Outro aditivo", unidade: "ml", livre: true }
+      ],
+      EMBALAGENS: [
+        { nome: "Cake board", unidade: "un" },
+        { nome: "Caixa para bolo", unidade: "un" },
+        { nome: "Caixa para doce", unidade: "un" },
+        { nome: "Saco de confeitar", unidade: "un" },
+        { nome: "Forminha", unidade: "un" },
+        { nome: "Papel-manteiga", unidade: "un" },
+        { nome: "Filme plástico", unidade: "un" },
+        { nome: "Outra embalagem", unidade: "un", livre: true }
+      ]
+    };
+    let almoxCategoriaAtalho = "SECOS";
+    let almoxFiltroLista = "TODOS";
+
+    function dataInputHoje() {
+      const hoje = new Date();
+      return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+    }
+
+    function desenharAtalhosAlmox() {
+      const caixa = document.getElementById("alm-atalhos");
+      const lista = ALMOX_ATALHOS[almoxCategoriaAtalho] || [];
+      caixa.innerHTML = lista.map((item) => `
+        <button type="button" data-mantimento="${escapar(item.livre ? "" : item.nome)}" data-unidade="${escapar(item.unidade)}" data-categoria="${almoxCategoriaAtalho}">${escapar(item.nome)}</button>
+      `).join("");
+    }
+
+    function seloValidadeAlmox(item) {
+      if (item.statusValidade === "VENCIDO") return `<span class="selo vencido">Vencido</span>`;
+      if (item.statusValidade === "VENCE_LOGO") {
+        const dias = Number(item.diasParaVencer);
+        const texto = dias === 0 ? "Vence hoje" : dias === 1 ? "Vence amanhã" : `Vence em ${dias} dias`;
+        return `<span class="selo vence">${texto}</span>`;
+      }
+      return item.validade ? `<span class="selo">Val. ${escapar(item.validade)}</span>` : "";
+    }
+
     function desenharAlmox(itens) {
       const lista = document.getElementById("lista-almox");
-      if (!itens.length) {
+      const filtrados = (itens || []).filter((item) => {
+        if (almoxFiltroLista === "TODOS") return true;
+        if (almoxFiltroLista === "ALERTA") return item.statusValidade === "VENCIDO" || item.statusValidade === "VENCE_LOGO";
+        return (item.categoria || "SECOS") === almoxFiltroLista;
+      });
+      if (!filtrados.length) {
         lista.className = "vazio";
-        lista.textContent = "Nenhum mantimento ainda. Toque no que chegou e preencha os três números.";
+        lista.textContent = itens && itens.length
+          ? "Nenhum mantimento neste filtro."
+          : "Nenhum mantimento ainda. Toque no que chegou e preencha os três números.";
         return;
       }
       lista.className = "";
-      lista.innerHTML = itens.map((item) => {
+      lista.innerHTML = `<p class="nota">Ordem PVPS: o que vence primeiro aparece primeiro.</p>` + filtrados.map((item) => {
         const usados = (item.usos || []).length;
         const resta = item.rendimento - usados;
         return `
           <article class="ficha">
-            <h3>${escapar(item.item)} <span class="selo">Cupom ${escapar(item.cupom)}</span></h3>
+            <h3>${escapar(item.item)}
+              <span class="selo categoria">${escapar(item.categoriaNome || item.categoria || "Secos")}</span>
+              ${seloValidadeAlmox(item)}
+              <span class="selo">Cupom ${escapar(item.cupom)}</span>
+            </h3>
             <div>Pagou ${dinheiro(item.valor)} por ${item.quantidade} ${escapar(item.unidade)}. Cada receita usa ${item.uso} ${escapar(item.unidade)}.</div>
             <div>Dá ${item.rendimento} receitas. Cada uma custa ${dinheiro(item.custoPorcao)}. Restam ${resta}. ${item.sobra ? `Sobra ${item.sobra} ${escapar(item.unidade)}.` : ""}</div>
+            <div class="nota">${item.abertoEm ? `Aberto em ${escapar(item.abertoEm)}. ` : ""}${item.validade ? `Validade ${escapar(item.validade)}.` : "Sem validade anotada."}</div>
             <button class="mini" type="button" data-usar="${escapar(item.id)}" ${resta <= 0 || String(item.id).startsWith("ALM-EX") ? "disabled" : ""}>${String(item.id).startsWith("ALM-EX") ? "Exemplo" : "Usei numa receita"}</button>
             <button class="mini" type="button" data-alm="${escapar(item.id)}" ${String(item.id).startsWith("ALM-EX") ? "disabled" : ""}>${String(item.id).startsWith("ALM-EX") ? "Não grava" : "Apagar"}</button>
           </article>`;
@@ -4187,12 +4765,14 @@
       document.getElementById("banco-meta").value = dinheiro(dados.metaMes);
       document.getElementById("banco-vencimento").value = dados.cartaoVencimento || 0;
       document.getElementById("ifood-saldo").value = dinheiro(dados.ifoodSaldo || 0);
-      document.getElementById("ifood-plano").value = dados.ifoodPlano || "BASICO";
+      const planoIfood = dados.ifoodPlano === "BASICO" ? "BASICO" : "ENTREGA";
+      document.getElementById("ifood-plano").value = planoIfood;
       document.getElementById("ifood-pagamento").value = dados.ifoodPagamento || "APP";
-      document.getElementById("ifood-comissao").value = dados.ifoodComissao ?? 12;
+      document.getElementById("ifood-comissao").value = dados.ifoodComissao ?? (planoIfood === "BASICO" ? 12 : 23);
       document.getElementById("ifood-taxa-pagamento").value = dados.ifoodTaxaPagamento ?? 3.2;
-      document.getElementById("ifood-mensalidade").value = dinheiro(dados.ifoodMensalidade ?? 110);
+      document.getElementById("ifood-mensalidade").value = dinheiro(dados.ifoodMensalidade ?? (planoIfood === "BASICO" ? 110 : 150));
       document.getElementById("ifood-isencao").value = dinheiro(dados.ifoodIsencao ?? 1800);
+      document.getElementById("ifood-promocoes-pct").value = dados.ifoodPromocoesPct ?? 0;
       document.getElementById("ifood-antecipacao").value = dados.ifoodAntecipacao || "NENHUMA";
       document.getElementById("ifood-taxa-antecipacao").value = dados.ifoodTaxaAntecipacao ?? 0;
       document.getElementById("noventa-saldo").value = dinheiro(dados.noventaSaldo || 0);
@@ -4230,32 +4810,36 @@
 
     function contaIfood(dados) {
       const bruto = arredCentavos(Math.max(0, dados.saldo));
-      const plano = dados.plano === "ENTREGA" ? "ENTREGA" : "BASICO";
+      const plano = dados.plano === "BASICO" ? "BASICO" : "ENTREGA";
       const pagamento = dados.pagamento === "ENTREGA" ? "ENTREGA" : "APP";
       const antecipacao = ["NENHUMA", "SEMANAL", "SEMANAL_DIGITAL", "SOB_DEMANDA"].includes(dados.antecipacao) ? dados.antecipacao : "NENHUMA";
       const comissao = Math.max(0, Math.min(80, Number(dados.comissao) || 0));
       const taxaPagamento = Math.max(0, Math.min(80, Number(dados.taxaPagamento) || 0));
       const taxaAntecipacao = Math.max(0, Math.min(80, Number(dados.taxaAntecipacao) || 0));
+      const promocaoPct = Math.max(0, Math.min(80, Number(dados.promocaoPct) || 0));
       const mensalidade = arredCentavos(Math.max(0, dados.mensalidade));
       const isencao = arredCentavos(Math.max(0, dados.isencao));
       const pagAplicada = pagamento === "APP" ? taxaPagamento : 0;
       const antAplicada = pagamento === "APP" ? taxaAntecipacao : 0;
-      const total = arredCentavos(comissao + pagAplicada + antAplicada);
+      const total = Math.round((comissao + pagAplicada + antAplicada + promocaoPct) * 10000) / 10000;
       const estoura = total >= 100;
-      const juros = !estoura && bruto > 0 ? arredCentavos(bruto * total / 100) : 0;
-      const parte = (percentual) => (!estoura && total > 0 && bruto > 0) ? arredCentavos(bruto * percentual / 100) : 0;
-      let comissaoRs = parte(comissao);
+      const parte = (percentual) => (!estoura && bruto > 0 && percentual > 0) ? arredCentavos(bruto * percentual / 100) : 0;
+      const comissaoRs = parte(comissao);
       const pagRs = parte(pagAplicada);
       const antRs = parte(antAplicada);
-      comissaoRs = arredCentavos(comissaoRs + (juros - (comissaoRs + pagRs + antRs)));
+      const promocoes = parte(promocaoPct);
+      const juros = arredCentavos(comissaoRs + pagRs + antRs);
       const isenta = bruto <= isencao;
       const mensalidadeCobrada = isenta ? 0 : mensalidade;
-      const liquido = arredCentavos(bruto - juros - mensalidadeCobrada);
-      const paraSobra100 = !estoura && total < 100 ? arredCentavos(100 / (1 - total / 100)) : 0;
+      const liquido = arredCentavos(bruto - juros - mensalidadeCobrada - promocoes);
+      const paraSobra100 = !estoura && (comissao + pagAplicada + antAplicada) < 100
+        ? arredCentavos(100 / (1 - (comissao + pagAplicada + antAplicada) / 100))
+        : 0;
       return {
-        saldo: bruto, taxa: total, bruto, juros, liquido, comissaoRs, pagRs, antRs,
-        mensalidade, mensalidadeCobrada, isenta, isencao, estoura, paraSobra100,
-        plano, pagamento, antecipacao
+        saldo: bruto, taxa: Math.round((comissao + pagAplicada + antAplicada) * 10000) / 10000,
+        taxaComPromo: total, bruto, juros, liquido, comissaoRs, pagRs, antRs,
+        mensalidade, mensalidadeCobrada, promocoes, promocaoPct, isenta, isencao, estoura, paraSobra100,
+        plano, pagamento, antecipacao, comissao, taxaPagamento: pagAplicada
       };
     }
 
@@ -4268,9 +4852,33 @@
         taxaPagamento: document.getElementById("ifood-taxa-pagamento").value,
         mensalidade: lerReais(document.getElementById("ifood-mensalidade").value),
         isencao: lerReais(document.getElementById("ifood-isencao").value),
+        promocaoPct: document.getElementById("ifood-promocoes-pct").value,
         antecipacao: document.getElementById("ifood-antecipacao").value,
         taxaAntecipacao: document.getElementById("ifood-taxa-antecipacao").value
       });
+    }
+
+    function pctDoExtrato(reais, bruto) {
+      if (bruto <= 0 || reais <= 0) return 0;
+      return Math.round((reais / bruto) * 1000000) / 10000;
+    }
+
+    function aplicarExtratoIfood() {
+      const bruto = lerReais(document.getElementById("ifood-saldo").value);
+      if (bruto <= 0) {
+        document.getElementById("ifood-dica").textContent = "Digite primeiro o valor das vendas do dia. Sem ele, o PDV não calcula a porcentagem.";
+        return;
+      }
+      const comissaoRs = lerReais(document.getElementById("ifood-extrato-comissao").value);
+      const pagRs = lerReais(document.getElementById("ifood-extrato-pagamento").value);
+      const promoRs = lerReais(document.getElementById("ifood-extrato-promocoes").value);
+      if (comissaoRs > 0) document.getElementById("ifood-comissao").value = pctDoExtrato(comissaoRs, bruto);
+      if (pagRs > 0) {
+        document.getElementById("ifood-pagamento").value = "APP";
+        document.getElementById("ifood-taxa-pagamento").value = pctDoExtrato(pagRs, bruto);
+      }
+      if (promoRs > 0) document.getElementById("ifood-promocoes-pct").value = pctDoExtrato(promoRs, bruto);
+      atualizarCanais();
     }
 
     function desenharFatia(alvo, bruto, liquido, nomeSaida) {
@@ -4350,6 +4958,7 @@
         ["Bruto geral", bruto, ""],
         ["Líquido geral", liquido, "sobra"],
         ["Juros iFood", ifood.juros, "custo"],
+        ["Promoções iFood", ifood.promocoes || 0, "custo"],
         ["Mensalidade iFood", ifood.mensalidadeCobrada, "custo"],
         ["Juros 99Food", noventa.juros, "custo"],
         ["Mensalidade 99Food", noventa.mensalidadeCobrada, "custo"],
@@ -5064,7 +5673,9 @@
         const [dia, mes, ano] = String(texto || "").split("/");
         return Number(ano) * 10000 + Number(mes) * 100 + Number(dia);
       };
-      const liquidoHoje = arredCentavos((conta.bruto || 0) - (conta.juros || 0));
+      const liquidoHoje = arredCentavos(
+        (conta.bruto || 0) - (conta.juros || 0) - (prefixo === "ifood" ? (conta.promocoes || 0) : 0)
+      );
       let dias = (base.dias || []).filter((dia) => dia.dia !== hoje);
       const dentro = !base.inicio || !base.fim || (numero(hoje) >= numero(base.inicio) && numero(hoje) <= numero(base.fim));
       if (dentro) dias = dias.concat([{ dia: hoje, bruto: conta.bruto || 0, liquido: liquidoHoje }]);
@@ -5330,30 +5941,32 @@
 
     function pintarIfood(canal) {
       const mensalidadeTexto = canal.isenta ? "Mensalidade isenta" : "Mensalidade";
+      const ciclo = cicloDo("ifood", canal);
       document.getElementById("ifood-numeros").innerHTML = [
         ["Valor bruto", canal.bruto, ""],
-        ["Comissão", canal.comissaoRs, "custo"],
-        ["Pagamento online", canal.pagRs, "custo"],
+        [`Comissão iFood (${percentualTexto(canal.comissao || 0)}%)`, canal.comissaoRs, "custo"],
+        [`Pagamento online (${percentualTexto(canal.taxaPagamento || 0)}%)`, canal.pagRs, "custo"],
         ["Antecipação", canal.antRs, "custo"],
+        [`Promoções da loja (${percentualTexto(canal.promocaoPct || 0)}%)`, canal.promocoes || 0, "custo"],
         [mensalidadeTexto, canal.mensalidadeCobrada, "custo"],
-        ["Líquido de hoje", arredCentavos(canal.bruto - canal.juros), ""],
-        ["Líquido acumulado", cicloDo("ifood", canal).liquido, "sobra"]
+        ["Líquido de hoje", canal.liquido, ""],
+        ["Líquido acumulado", ciclo.liquido, "sobra"]
       ].map(([rotulo, valor, classe]) => `<div class="numero ${classe}"><span>${rotulo}</span><strong>${dinheiro(valor)}</strong></div>`).join("");
-      desenharCiclo("ifood-ciclo", cicloDo("ifood", canal), "iFood");
-      desenharFatia(document.getElementById("ifood-fatia"), canal.bruto, arredCentavos(canal.bruto - canal.juros), "Ficou com o iFood");
+      desenharCiclo("ifood-ciclo", ciclo, "iFood");
+      desenharFatia(document.getElementById("ifood-fatia"), canal.bruto, canal.liquido, "Ficou com o iFood");
       const dica = document.getElementById("ifood-dica");
       if (canal.estoura) {
-        dica.textContent = "A soma da comissão, do pagamento online e da antecipação ficou em 100% ou mais. Baixe um desses percentuais para a conta do bruto aparecer.";
+        dica.textContent = "A soma das porcentagens (comissão + pagamento + antecipação + promoções) ficou em 100% ou mais. Baixe um percentual para a conta aparecer.";
         return;
       }
       const pagamento = canal.pagamento === "ENTREGA" ? "na entrega, só com a comissão" : "pago pelo aplicativo";
       const mensalidade = canal.isenta
         ? `A mensalidade deste mês está isenta porque o bruto ficou até ${dinheiro(canal.isencao)}.`
-        : `A mensalidade de ${dinheiro(canal.mensalidade)} entrou porque o bruto passou de ${dinheiro(canal.isencao)}.`;
+        : `A mensalidade de ${dinheiro(canal.mensalidade)} entrou porque o bruto do mês passou de ${dinheiro(canal.isencao)}.`;
       const base = canal.bruto <= 0
         ? "O valor dos pedidos ainda está em zero. A conta abaixo já mostra quanto o iFood fica em cada R$ 100."
-        : `Bruto ${dinheiro(canal.bruto)}. Comissão ${dinheiro(canal.comissaoRs)}, pagamento online ${dinheiro(canal.pagRs)}, antecipação ${dinheiro(canal.antRs)}. Líquido ${dinheiro(canal.liquido)}.`;
-      dica.textContent = `${base} Pedido ${pagamento}. De cada R$ 100 do pedido, o iFood fica com R$ ${percentualTexto(canal.taxa)} e a loja fica com R$ ${percentualTexto(100 - canal.taxa)}. Para a loja ficar com R$ 100, o pedido precisa ser ${dinheiro(canal.paraSobra100)}. ${mensalidade}`;
+        : `Bruto ${dinheiro(canal.bruto)}. Comissão ${dinheiro(canal.comissaoRs)}, pagamento online ${dinheiro(canal.pagRs)}, antecipação ${dinheiro(canal.antRs)}, promoções ${dinheiro(canal.promocoes || 0)}. Líquido ${dinheiro(canal.liquido)}.`;
+      dica.textContent = `${base} Pedido ${pagamento}. Cada % é sobre as vendas. De cada R$ 100 do pedido, taxas do iFood + promoções somam R$ ${percentualTexto(canal.taxaComPromo || canal.taxa)} e a loja fica com R$ ${percentualTexto(100 - (canal.taxaComPromo || canal.taxa))}. ${mensalidade}`;
     }
 
     function pintarNoventa(canal) {
@@ -5490,6 +6103,7 @@
         movimento.map((l) => `<tr><td>${l.criadoEm}</td><td>${escapar(l.descricao)}<br>${escapar(l.categoria)}${l.motivo ? `<br>Motivo: ${escapar(l.motivo)}` : ""}</td><td>${dinheiro(l.valor)}</td></tr>`).join("")
       }</table>` : `<p class="vazio">Nenhum lançamento ainda.</p>`;
       desenharResultado(livro);
+      desenharEsperaMp();
       desenharAlterar();
       desenharCancelamento();
       ultimoResumo = resumo;
@@ -6048,6 +6662,44 @@
       }).join("");
     }
 
+    function desenharEsperaMp() {
+      const lista = document.getElementById("lista-espera-mp");
+      if (!lista) return;
+      const espera = (pedidosCache || []).filter(esperaMp);
+      if (!espera.length) {
+        lista.className = "vazio";
+        lista.textContent = "Nenhuma venda esperando o Mercado Pago.";
+        return;
+      }
+      lista.className = "";
+      lista.innerHTML = espera.map((pedido) => `
+        <article class="ficha">
+          <h3>${escapar(pedido.nome)} <span class="selo">${escapar(pedido.orderId)}</span></h3>
+          <div>${escapar(pedido.pagamento || "")} · ${dinheiro(pedido.total)}${Number(pedido.taxaServico) > 0 ? ` · taxa ${dinheiro(pedido.taxaServico)}` : ""}</div>
+          <div class="nota">Ainda não entrou no caixa. Pode cobrar de novo ou receber na loja.</div>
+          <div class="acoes">
+            <button class="mini" type="button" data-mp-abrir="${escapar(pedido.orderId)}">Abrir cobrança de novo</button>
+            <button class="mini" type="button" data-mp-loja="${escapar(pedido.orderId)}">Receber na loja</button>
+          </div>
+        </article>
+      `).join("");
+      lista.querySelectorAll("[data-mp-abrir]").forEach((botao) => {
+        botao.onclick = () => {
+          const pedido = pedidosCache.find((p) => p.orderId === botao.dataset.mpAbrir);
+          if (pedido) abrirCobrancaMp(pedido);
+        };
+      });
+      lista.querySelectorAll("[data-mp-loja]").forEach((botao) => {
+        botao.onclick = () => {
+          const alvo = document.querySelector(`[data-alterar="${botao.dataset.mpLoja}"]`);
+          if (alvo) alvo.scrollIntoView({ behavior: "smooth", block: "center" });
+          const aviso = document.getElementById("aviso-espera-mp");
+          aviso.textContent = "Em Alterar pagamento, escolha dinheiro, PIX ou débito e confirme. A venda segue sem refazer.";
+          aviso.className = "aviso ok";
+        };
+      });
+    }
+
     function desenharAlterar() {
       const lista = document.getElementById("lista-alterar");
       if (!pedidosCache.length) {
@@ -6059,11 +6711,13 @@
       lista.innerHTML = pedidosCache.map((pedido) => {
         const resultado = Number(pedido.resultado || 0);
         const resultadoTexto = resultado > 0 ? `Lucro ${dinheiro(resultado)}` : resultado < 0 ? `Prejuízo ${dinheiro(Math.abs(resultado))}` : "Sem diferença";
+        const esperando = esperaMp(pedido);
         return `
-          <article class="ficha">
+          <article class="ficha" id="alterar-${escapar(pedido.orderId)}">
             <h3>${escapar(pedido.nome)} <span class="selo">${escapar(pedido.orderId)}</span></h3>
             <div>Tabela ${dinheiro(pedido.valorTabela != null ? pedido.valorTabela : pedido.total)} · Cobrado ${dinheiro(pedido.valorCobrado != null ? pedido.valorCobrado : pedido.total)} · ${resultadoTexto}</div>
-            <div>Agora: ${escapar(pedido.pagamento)} · entrou ${dinheiro(pedido.sinal)}</div>
+            <div>Agora: ${escapar(pedido.pagamento)} · ${esperando ? "esperando Mercado Pago" : `entrou ${dinheiro(pedido.sinal)}`}</div>
+            ${esperando ? `<div class="nota">Troque para pagamento na loja se o Mercado Pago falhou. Não precisa cancelar.</div>` : ""}
             <label>Nova forma</label>
             <select data-pagamento="${escapar(pedido.orderId)}">${OPCOES_PAGAMENTO}</select>
             <label>Parcelas, se for crédito</label>
@@ -6072,7 +6726,7 @@
             </select>
             <label>Valor da primeira parte, se for misto</label>
             <input data-parte="${escapar(pedido.orderId)}" type="number" min="0" step="0.01" value="0">
-            <button class="mini" type="button" data-alterar="${escapar(pedido.orderId)}">Alterar pagamento</button>
+            <button class="mini" type="button" data-alterar="${escapar(pedido.orderId)}">${esperando ? "Receber na loja com esta forma" : "Alterar pagamento"}</button>
           </article>`;
       }).join("");
       lista.querySelectorAll("[data-pagamento]").forEach((campo) => {
@@ -6102,8 +6756,10 @@
         avisoAlterar.className = "aviso erro";
         return;
       }
-      avisoAlterar.textContent = `Pagamento de ${orderId} alterado para ${corpo.pedido.pagamento}.`;
+      avisoAlterar.textContent = corpo.aviso || `Pagamento de ${orderId} alterado para ${corpo.pedido.pagamento}.`;
       avisoAlterar.className = "aviso ok";
+      document.getElementById("mp-fundo")?.classList.remove("aberto");
+      pararCobrancaMp();
       await carregarListas();
     }
 
@@ -6151,6 +6807,7 @@
       avisoCancelar.textContent = `Venda ${orderId} apagada. Motivo: ${motivo}.${corpo.avisoMercadoPago ? ` ${corpo.avisoMercadoPago}` : ""}`;
       avisoCancelar.className = "aviso ok";
       await carregarListas();
+      conferirEstornosMp();
     }
 
     function limparCliente() {
@@ -6277,7 +6934,7 @@
     function atualizarCanais() {
       desenharAdminLeitura(fantasmaLigado() ? resumoComExemplo(ultimoResumo) : ultimoResumo);
     }
-    ["taxa-valor", "alm-valor", "banco-empresa", "banco-nubank", "banco-limite", "banco-usado", "banco-meta", "ifood-saldo", "ifood-mensalidade", "ifood-isencao", "noventa-saldo", "noventa-mensalidade", "gaveta-contado", "passar-valor"].forEach((id) => {
+    ["taxa-valor", "alm-valor", "banco-empresa", "banco-nubank", "banco-limite", "banco-usado", "banco-meta", "ifood-saldo", "ifood-mensalidade", "ifood-isencao", "ifood-extrato-comissao", "ifood-extrato-pagamento", "ifood-extrato-promocoes", "noventa-saldo", "noventa-mensalidade", "gaveta-contado", "passar-valor"].forEach((id) => {
       document.getElementById(id).addEventListener("input", (evento) => {
         evento.target.value = dinheiro(lerReais(evento.target.value));
         if (id === "alm-valor") contaAlmox();
@@ -6319,9 +6976,10 @@
       document.getElementById("ifood-taxa-antecipacao").value = sugestao[document.getElementById("ifood-antecipacao").value] ?? 0;
       atualizarCanais();
     });
-    ["ifood-comissao", "ifood-taxa-pagamento", "ifood-taxa-antecipacao"].forEach((id) => {
+    ["ifood-comissao", "ifood-taxa-pagamento", "ifood-taxa-antecipacao", "ifood-promocoes-pct"].forEach((id) => {
       document.getElementById(id).addEventListener("input", atualizarCanais);
     });
+    document.getElementById("ifood-extrato-aplicar").onclick = aplicarExtratoIfood;
     document.querySelectorAll("[data-admin]").forEach((botao) => {
       botao.onclick = () => {
         document.querySelectorAll("[data-admin]").forEach((item) => item.classList.remove("ativa"));
@@ -6335,6 +6993,21 @@
       };
     });
 
+    function acenderLuzMp(cor, legenda) {
+      const luz = document.getElementById("mp-luz");
+      const texto = document.getElementById("mp-luz-legenda");
+      const atalho = document.getElementById("atalho-mp");
+      const corLimpa = ["verde", "vermelho", "amarelo", "cinza"].includes(cor) ? cor : "cinza";
+      luz.className = `luz-status ${corLimpa}`;
+      texto.className = `nota ${corLimpa}`;
+      texto.textContent = legenda || "";
+      atalho.classList.remove("luz-verde", "luz-vermelho", "luz-amarelo");
+      if (corLimpa === "verde" || corLimpa === "vermelho" || corLimpa === "amarelo") {
+        atalho.classList.add(`luz-${corLimpa}`);
+      }
+      atalho.title = legenda ? `Mercado Pago · ${legenda}` : "Mercado Pago";
+    }
+
     function mostrarMercadoPago(dados) {
       const modo = dados.modo === "OAUTH" ? "pela conta (Opção B)" : "pela chave (Opção A)";
       document.getElementById("mp-estado").textContent = dados.conectado
@@ -6345,6 +7018,18 @@
       document.getElementById("mp-client-secret").placeholder = dados.temSecret ? "Guardado. Em branco mantém o atual." : "";
       document.getElementById("mp-retorno").value = dados.retorno || `${location.origin}/api/mercadopago/retorno`;
       document.getElementById("mp-desconectar").disabled = !dados.conectado;
+      if (dados.conectado) {
+        acenderLuzMp(
+          "verde",
+          dados.teste
+            ? `Conectado em TESTE · chave …${dados.final}. Serve para ver as telas; banco não paga.`
+            : `Conectado · chave …${dados.final}${dados.conta ? ` · ${dados.conta}` : ""}. Pode cobrar no caixa.`
+        );
+      } else if (dados.clientId && dados.temSecret) {
+        acenderLuzMp("amarelo", "Aplicação guardada no PDV. Falta autorizar a conta (Opção B) ou colar o Access Token (Opção A).");
+      } else {
+        acenderLuzMp("cinza", "Ainda sem conexão. Cole o Access Token e aperte Conectar com a chave.");
+      }
     }
 
     async function pedirMercadoPago(caminho, corpo) {
@@ -6352,17 +7037,34 @@
       if (fantasmaLigado()) {
         aviso.textContent = "No modo de exemplo o Mercado Pago não liga.";
         aviso.className = "aviso erro";
+        acenderLuzMp("amarelo", "O PDV está em modo de exemplo: daqui ok, mas o Mercado Pago de verdade não liga.");
         return null;
       }
-      const resposta = await fetch(caminho, {
-        method: corpo === undefined ? "GET" : "POST",
-        headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
-        body: corpo === undefined ? undefined : JSON.stringify(corpo)
-      });
+      let resposta;
+      try {
+        resposta = await fetch(caminho, {
+          method: corpo === undefined ? "GET" : "POST",
+          headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+          body: corpo === undefined ? undefined : JSON.stringify(corpo)
+        });
+      } catch (erro) {
+        aviso.textContent = "Sem internet ou o PDV não respondeu.";
+        aviso.className = "aviso erro";
+        acenderLuzMp("amarelo", "O PDV tentou, mas a rede ou o Mercado Pago não respondeu.");
+        return null;
+      }
       const dados = await resposta.json().catch(() => ({}));
       if (!resposta.ok) {
-        aviso.textContent = typeof dados.detail === "string" ? dados.detail : "O Mercado Pago não respondeu.";
+        const detalhe = typeof dados.detail === "string" ? dados.detail : "O Mercado Pago não respondeu.";
+        aviso.textContent = detalhe;
         aviso.className = "aviso erro";
+        const doOutroLado = resposta.status >= 500 || /não respondeu|venceu/i.test(detalhe);
+        acenderLuzMp(
+          doOutroLado ? "amarelo" : "vermelho",
+          doOutroLado
+            ? `O PDV enviou certo, mas o Mercado Pago falhou: ${detalhe}`
+            : detalhe
+        );
         return null;
       }
       return dados;
@@ -6394,14 +7096,35 @@
     function mostrarIfoodApi(dados) {
       const ligado = !!dados.ligado;
       const busca = dados.ultimaBusca || {};
+      const poll = dados.polling || {};
+      const repasse = dados.ultimoRepasse || {};
+      const catalogo = dados.ultimoCatalogo || {};
       document.getElementById("ifood-api-estado").textContent = ligado
         ? `Ligada${dados.loja ? ` na loja ${dados.loja}` : ""} desde ${dados.ligadoEm}. Client ID termina em ${dados.clientIdFim}.`
         : "Desligada. O valor de vendas do dia continua sendo digitado.";
       document.getElementById("ifood-api-desligar").hidden = !ligado;
       document.getElementById("ifood-api-buscar").hidden = !ligado;
+      document.getElementById("ifood-api-modulos").hidden = !ligado;
       document.getElementById("ifood-api-merchant").value = dados.merchantId || "";
+      document.getElementById("ifood-api-pedidos").checked = dados.pedidosAtivos !== false;
+      document.getElementById("ifood-api-confirmar").checked = dados.confirmarAuto !== false;
       document.getElementById("ifood-api-busca").textContent = ligado && busca.buscadoEm
         ? `Última busca: ${busca.buscadoEm}, ${busca.pedidos} pedido(s), bruto ${dinheiro(busca.bruto)}, o iFood calcula ${dinheiro(busca.liquido)} para a loja.`
+        : "";
+      document.getElementById("ifood-api-polling").textContent = ligado
+        ? (poll.rodando
+          ? `Pedidos: ouvindo o iFood${poll.ultimoEm ? ` · última checagem ${poll.ultimoEm}` : ""}${poll.novos ? ` · ${poll.novos} novo(s) nesta sessão` : ""}${poll.ultimoErro ? ` · ${poll.ultimoErro}` : ""}.`
+          : `Pedidos: parado${poll.ultimoErro ? ` · ${poll.ultimoErro}` : ""}.`)
+        : "";
+      document.getElementById("ifood-api-repasse").textContent = repasse.buscadoEm
+        ? `Repasses: ${repasse.quantidade || 0} nos últimos 30 dias, total ${dinheiro(repasse.total || 0)} · ${repasse.buscadoEm}.`
+        : "";
+      document.getElementById("ifood-api-catalogo-nota").textContent = catalogo.buscadoEm
+        ? `Cardápio: ${catalogo.itensIfood || 0} no iFood, ${catalogo.iguais || 0} iguais, ${catalogo.diferentes || 0} com preço diferente, ${catalogo.soIfood || 0} só no iFood, ${catalogo.soPdv || 0} só no PDV · ${catalogo.buscadoEm}.`
+        : "";
+      const pendentes = dados.pendentes || [];
+      document.getElementById("ifood-api-pendentes").innerHTML = pendentes.length
+        ? `Na cozinha pelo iFood: ${pendentes.map((p) => `#${p.displayId || p.orderId} ${p.nome} (${dinheiro(p.total)})`).join(" · ")}`
         : "";
     }
 
@@ -6464,17 +7187,66 @@
           return;
         }
         document.getElementById("ifood-saldo").value = dinheiro(dados.bruto);
-        sujo.ifood = true;
-        anotarPasso("ifood");
-        nota.textContent = `${dados.pedidos} pedido(s) hoje${dados.cancelados ? ` e ${dados.cancelados} cancelado(s) fora da conta` : ""}. Bruto ${dinheiro(dados.bruto)}; o iFood calcula ${dinheiro(dados.liquido)} para a loja. Confira e salve na aba Banco.`;
+        sujo.ifood = false;
+        digitado.ifood = true;
+        atualizarGuia();
+        nota.textContent = `${dados.pedidos} pedido(s) hoje${dados.cancelados ? ` e ${dados.cancelados} cancelado(s) fora da conta` : ""}. Bruto ${dinheiro(dados.bruto)}; o iFood calcula ${dinheiro(dados.liquido)} para a loja.${dados.gravado ? " Valor gravado no PDV." : " Confira e salve na aba Banco."} Se buscar de novo e o número subir, entrou venda nova no dia.`;
       } finally {
         botao.disabled = false;
       }
+    };
+    async function guardarPreferenciasIfood() {
+      const dados = await pedirIfoodApi("/api/ifood/api/preferencias", {
+        method: "PUT",
+        body: JSON.stringify({
+          pedidosAtivos: document.getElementById("ifood-api-pedidos").checked,
+          confirmarAuto: document.getElementById("ifood-api-confirmar").checked
+        })
+      });
+      if (dados) mostrarIfoodApi(dados);
+    }
+    document.getElementById("ifood-api-pedidos").onchange = guardarPreferenciasIfood;
+    document.getElementById("ifood-api-confirmar").onchange = guardarPreferenciasIfood;
+    document.getElementById("ifood-api-conferir-pedidos").onclick = async () => {
+      const aviso = document.getElementById("ifood-api-aviso");
+      aviso.textContent = "Conferindo pedidos no iFood…";
+      aviso.className = "aviso";
+      const dados = await pedirIfoodApi("/api/ifood/pedidos/conferir", { method: "POST" });
+      if (!dados) return;
+      mostrarIfoodApi(dados);
+      aviso.textContent = "Conferência de pedidos feita.";
+      aviso.className = "aviso ok";
+      await carregarListas();
+    };
+    document.getElementById("ifood-api-repasses").onclick = async () => {
+      const nota = document.getElementById("ifood-api-repasse");
+      nota.textContent = "Buscando repasses no iFood…";
+      const dados = await pedirIfoodApi("/api/ifood/repasses", { method: "POST" });
+      if (!dados) {
+        nota.textContent = document.getElementById("ifood-api-aviso").textContent;
+        return;
+      }
+      nota.textContent = `${dados.quantidade} repasse(s) nos últimos 30 dias, total ${dinheiro(dados.total)}.`;
+      await carregarIfoodApi();
+    };
+    document.getElementById("ifood-api-catalogo").onclick = async () => {
+      const nota = document.getElementById("ifood-api-catalogo-nota");
+      nota.textContent = "Conferindo o cardápio no iFood…";
+      const dados = await pedirIfoodApi("/api/ifood/catalogo", { method: "POST" });
+      if (!dados) {
+        nota.textContent = document.getElementById("ifood-api-aviso").textContent;
+        return;
+      }
+      const diferencas = (dados.linhas || []).slice(0, 8)
+        .map((l) => `${l.nome}: ${l.situacao}${l.precoIfood != null ? ` iFood ${dinheiro(l.precoIfood)}` : ""}${l.precoPdv != null ? ` PDV ${dinheiro(l.precoPdv)}` : ""}`)
+        .join(" · ");
+      nota.textContent = `${dados.itensIfood} no iFood · ${dados.iguais} iguais · ${dados.diferentes} preço diferente · ${dados.soIfood} só no iFood · ${dados.soPdv} só no PDV.${diferencas ? ` ${diferencas}` : ""}`;
     };
 
     async function carregarMercadoPago() {
       const dados = await pedirMercadoPago("/api/mercadopago");
       if (dados) mostrarMercadoPago(dados);
+      else if (!fantasmaLigado()) acenderLuzMp("vermelho", "Não deu para ler a conexão. Entre de novo no Administrativo.");
       await carregarTaxasMp();
       mostrarTaxasMp(taxasMp.taxas || {}, taxasMp.extras || []);
     }
@@ -6712,11 +7484,22 @@
 
     document.getElementById("mp-chave-salvar").onclick = async () => {
       const campo = document.getElementById("mp-chave");
-      const dados = await pedirMercadoPago("/api/mercadopago/chave", { accessToken: campo.value });
-      campo.value = "";
+      const token = campo.value.trim();
+      if (!token) {
+        document.getElementById("mp-aviso").textContent = "Cole o Access Token antes de conectar.";
+        document.getElementById("mp-aviso").className = "aviso erro";
+        acenderLuzMp("vermelho", "Falta colar o Access Token.");
+        return;
+      }
+      acenderLuzMp("amarelo", "Enviando a chave para o Mercado Pago confirmar...");
+      const dados = await pedirMercadoPago("/api/mercadopago/chave", { accessToken: token });
       if (!dados) return;
+      campo.value = "";
       mostrarMercadoPago(dados);
-      document.getElementById("mp-aviso").textContent = "Mercado Pago conectado pela chave.";
+      await carregarTaxasMp();
+      document.getElementById("mp-aviso").textContent = dados.teste
+        ? "Conectado em TESTE. A luz verde confirma; banco não paga com essa chave."
+        : "Mercado Pago conectado. A luz verde confirma; a chave sumiu do campo de propósito.";
       document.getElementById("mp-aviso").className = "aviso ok";
     };
     document.getElementById("mp-app-salvar").onclick = async () => {
@@ -6727,10 +7510,12 @@
       });
       if (!dados) return;
       mostrarMercadoPago(dados);
+      acenderLuzMp("amarelo", "Aplicação guardada no PDV. Falta autorizar no Mercado Pago.");
       document.getElementById("mp-aviso").textContent = "Aplicação guardada. Agora clique em Conectar minha conta Mercado Pago.";
       document.getElementById("mp-aviso").className = "aviso ok";
     };
     document.getElementById("mp-conectar").onclick = async () => {
+      acenderLuzMp("amarelo", "Abrindo o Mercado Pago para autorizar...");
       const dados = await pedirMercadoPago("/api/mercadopago/conectar", {});
       if (dados && dados.url) location.href = dados.url;
     };
@@ -7055,6 +7840,21 @@
       avisoReserva.className = resposta.ok ? "aviso ok" : "aviso erro";
       if (resposta.ok) await carregarListas();
     };
+    document.getElementById("alm-abas").onclick = (evento) => {
+      const botao = evento.target.closest("button[data-alm-cat]");
+      if (!botao) return;
+      almoxCategoriaAtalho = botao.dataset.almCat;
+      document.querySelectorAll("#alm-abas button").forEach((item) => item.classList.toggle("ativa", item === botao));
+      document.getElementById("alm-categoria").value = almoxCategoriaAtalho;
+      desenharAtalhosAlmox();
+    };
+    document.getElementById("alm-filtro-lista").onclick = (evento) => {
+      const botao = evento.target.closest("button[data-alm-filtro]");
+      if (!botao) return;
+      almoxFiltroLista = botao.dataset.almFiltro;
+      document.querySelectorAll("#alm-filtro-lista button").forEach((item) => item.classList.toggle("ativa", item === botao));
+      desenharAlmox(ultimoAlmox);
+    };
     document.getElementById("alm-atalhos").onclick = (evento) => {
       const botao = evento.target.closest("button");
       if (!botao) return;
@@ -7062,6 +7862,7 @@
       botao.classList.add("ativa");
       document.getElementById("alm-item").value = botao.dataset.mantimento || "";
       document.getElementById("alm-unidade").value = botao.dataset.unidade || "g";
+      document.getElementById("alm-categoria").value = botao.dataset.categoria || almoxCategoriaAtalho;
       contaAlmox();
       document.getElementById(botao.dataset.mantimento ? "alm-valor" : "alm-item").focus();
     };
@@ -7079,16 +7880,25 @@
           valor: lerReais(document.getElementById("alm-valor").value),
           quantidade: Number(document.getElementById("alm-quantidade").value) || 0,
           unidade: document.getElementById("alm-unidade").value,
-          uso: Number(document.getElementById("alm-uso").value) || 0
+          uso: Number(document.getElementById("alm-uso").value) || 0,
+          categoria: document.getElementById("alm-categoria").value,
+          validade: document.getElementById("alm-validade").value,
+          abertoEm: document.getElementById("alm-aberto").value || dataInputHoje()
         })
       });
       const corpo = await resposta.json();
       avisoAlm.textContent = resposta.ok
-        ? `${corpo.item} guardado. Dá ${corpo.rendimento} receitas a ${dinheiro(corpo.custoPorcao)} cada.`
+        ? `${corpo.item} guardado. Dá ${corpo.rendimento} receitas a ${dinheiro(corpo.custoPorcao)} cada.${corpo.validade ? ` Validade ${corpo.validade}.` : ""}`
         : (corpo.detail || "Não foi possível guardar o mantimento.");
       avisoAlm.className = resposta.ok ? "aviso ok" : "aviso erro";
-      if (resposta.ok) await carregarListas();
+      if (resposta.ok) {
+        document.getElementById("alm-validade").value = "";
+        document.getElementById("alm-aberto").value = dataInputHoje();
+        await carregarListas();
+      }
     };
+    desenharAtalhosAlmox();
+    document.getElementById("alm-aberto").value = dataInputHoje();
     document.getElementById("cozinha-qtd").addEventListener("input", atualizarContaCozinha);
     document.getElementById("cozinha-lancar").onclick = lancarFornada;
     document.getElementById("pronto-mandar").onclick = mandarAvisoPronto;
@@ -7243,6 +8053,7 @@
           ifoodTaxaPagamento: Number(document.getElementById("ifood-taxa-pagamento").value) || 0,
           ifoodMensalidade: lerReais(document.getElementById("ifood-mensalidade").value),
           ifoodIsencao: lerReais(document.getElementById("ifood-isencao").value),
+          ifoodPromocoesPct: Number(document.getElementById("ifood-promocoes-pct").value) || 0,
           ifoodAntecipacao: document.getElementById("ifood-antecipacao").value,
           ifoodTaxaAntecipacao: Number(document.getElementById("ifood-taxa-antecipacao").value) || 0,
           noventaSaldo: lerReais(document.getElementById("noventa-saldo").value),
@@ -7254,18 +8065,27 @@
           noventaMensalidade: lerReais(document.getElementById("noventa-mensalidade").value),
           noventaRepasse: document.getElementById("noventa-repasse").value,
           noventaTaxaSaque: Number(document.getElementById("noventa-taxa-saque").value) || 0,
-          ifoodConfirmado: digitado.ifood,
-          noventaConfirmado: digitado.noventa,
-          bancoConfirmado: digitado.banco
+          ifoodConfirmado: digitado.ifood || sujo.ifood,
+          noventaConfirmado: digitado.noventa || sujo.noventa,
+          bancoConfirmado: digitado.banco || sujo.banco
         })
       });
       const corpo = await resposta.json();
       avisoBanco.textContent = resposta.ok ? "Saldos salvos. Se os três estiverem salvos, o botão verde pede para conferir e fechar." : (corpo.detail || "Não foi possível salvar.");
       avisoBanco.className = resposta.ok ? "aviso ok" : "aviso erro";
       if (resposta.ok) {
-        if (digitado.ifood) sujo.ifood = false;
-        if (digitado.noventa) sujo.noventa = false;
-        if (digitado.banco) sujo.banco = false;
+        if (digitado.ifood || sujo.ifood) {
+          digitado.ifood = true;
+          sujo.ifood = false;
+        }
+        if (digitado.noventa || sujo.noventa) {
+          digitado.noventa = true;
+          sujo.noventa = false;
+        }
+        if (digitado.banco || sujo.banco) {
+          digitado.banco = true;
+          sujo.banco = false;
+        }
         preencherBancos(corpo);
         await carregarListas();
         const falta = passosGuia().find((passo) => !passo.hoje);
@@ -7300,6 +8120,77 @@
         document.getElementById("senha-atual").value = "";
         document.getElementById("senha-nova").value = "";
       }
+    };
+
+    function aplicarLogoNaTela(url) {
+      const destino = url || `/static/logo.png?v=${Date.now()}`;
+      document.querySelectorAll("img.logo-loja, #logo-preview").forEach((img) => {
+        img.src = destino;
+      });
+    }
+
+    let logoArquivoBase64 = "";
+    document.getElementById("logo-arquivo").addEventListener("change", (evento) => {
+      const arquivo = evento.target.files && evento.target.files[0];
+      const aviso = document.getElementById("logo-aviso");
+      logoArquivoBase64 = "";
+      if (!arquivo) return;
+      if (arquivo.size > 4_500_000) {
+        aviso.textContent = "Escolha uma imagem menor (até cerca de 4 MB).";
+        aviso.className = "aviso erro";
+        evento.target.value = "";
+        return;
+      }
+      const leitor = new FileReader();
+      leitor.onload = () => {
+        logoArquivoBase64 = String(leitor.result || "");
+        document.getElementById("logo-preview").src = logoArquivoBase64;
+        aviso.textContent = "Prévia na tela. Aperte Guardar logo ajustado.";
+        aviso.className = "aviso";
+      };
+      leitor.readAsDataURL(arquivo);
+    });
+    document.getElementById("logo-salvar").onclick = async () => {
+      const aviso = document.getElementById("logo-aviso");
+      if (fantasmaLigado()) {
+        aviso.textContent = "No exemplo o logo não grava.";
+        aviso.className = "aviso ok";
+        return;
+      }
+      if (!logoArquivoBase64) {
+        aviso.textContent = "Escolha uma imagem antes de guardar.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      const resposta = await fetch("/api/admin/logo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+        body: JSON.stringify({ imagem: logoArquivoBase64 })
+      });
+      const corpo = await resposta.json();
+      aviso.textContent = resposta.ok ? (corpo.mensagem || "Logo guardado.") : (corpo.detail || "Não foi possível guardar o logo.");
+      aviso.className = resposta.ok ? "aviso ok" : "aviso erro";
+      if (resposta.ok) {
+        logoArquivoBase64 = "";
+        document.getElementById("logo-arquivo").value = "";
+        aplicarLogoNaTela(corpo.url);
+      }
+    };
+    document.getElementById("logo-ajustar").onclick = async () => {
+      const aviso = document.getElementById("logo-aviso");
+      if (fantasmaLigado()) {
+        aviso.textContent = "No exemplo o logo não muda.";
+        aviso.className = "aviso ok";
+        return;
+      }
+      const resposta = await fetch("/api/admin/logo/ajustar", {
+        method: "POST",
+        headers: { "x-admin": tokenAdmin() }
+      });
+      const corpo = await resposta.json();
+      aviso.textContent = resposta.ok ? (corpo.mensagem || "Logo ajustado.") : (corpo.detail || "Não foi possível ajustar.");
+      aviso.className = resposta.ok ? "aviso ok" : "aviso erro";
+      if (resposta.ok) aplicarLogoNaTela(corpo.url);
     };
     if (tokenAdmin()) {
       fetch("/api/admin", { headers: { "x-admin": tokenAdmin() } })
