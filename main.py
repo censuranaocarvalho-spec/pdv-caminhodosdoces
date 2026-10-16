@@ -42,9 +42,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps
 except ImportError:  # pragma: no cover
     Image = None
+    ImageOps = None
 
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 FRONTEND = os.path.join(RAIZ, "frontend")
@@ -60,8 +61,8 @@ JUROS_MES = 0.0199
 WHATSAPP_DONA = "5561994429261"
 
 
-def ajustar_logo(origem, destino: str = "", lado: int = 512, margem_pct: float = 0.08) -> str:
-    """Encaixa o logo num quadrado sem cortar nem estourar a moldura."""
+def ajustar_logo(origem, destino: str = "", lado: int = 512, margem_pct: float = 0.0) -> str:
+    """Preenche o quadrado do logo (corta o excesso nas laterais se precisar)."""
     if Image is None:
         raise HTTPException(status_code=500, detail="Falta a biblioteca Pillow para ajustar o logo.")
     destino = destino or CAMINHO_LOGO
@@ -78,15 +79,17 @@ def ajustar_logo(origem, destino: str = "", lado: int = 512, margem_pct: float =
     else:
         imagem = Image.open(origem)
     imagem = imagem.convert("RGBA")
-    fundo = Image.new("RGBA", (lado, lado), (255, 255, 255, 255))
     area = max(32, int(lado * (1 - 2 * margem_pct)))
-    copia = imagem.copy()
-    copia.thumbnail((area, area), Image.Resampling.LANCZOS)
-    x = (lado - copia.width) // 2
-    y = (lado - copia.height) // 2
-    fundo.paste(copia, (x, y), copia)
+    preenchida = ImageOps.fit(imagem, (area, area), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    if area == lado:
+        saida = preenchida
+    else:
+        saida = Image.new("RGBA", (lado, lado), (255, 255, 255, 255))
+        x = (lado - area) // 2
+        y = (lado - area) // 2
+        saida.paste(preenchida, (x, y), preenchida)
     os.makedirs(os.path.dirname(destino) or ".", exist_ok=True)
-    fundo.convert("RGB").save(destino, "PNG", optimize=True)
+    saida.convert("RGB").save(destino, "PNG", optimize=True)
     return destino
 
 
@@ -1824,7 +1827,7 @@ def pagina_cardapio() -> str:
     main {{ max-width: 440px; margin: 24px auto; background: #fff; border: 1px solid #C5CEE6; border-radius: 16px; padding: 18px; }}
     h1 {{ text-align: center; font-size: 20px; margin: 8px 0 4px; }}
     .centro {{ text-align: center; font-size: 13px; }}
-    .logo {{ width: 96px; height: 96px; border-radius: 50%; object-fit: contain; padding: 8px; box-sizing: border-box; background: #fff; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }}
+    .logo {{ width: 96px; height: 96px; border-radius: 50%; object-fit: cover; box-sizing: border-box; background: #fff; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }}
     hr {{ border: none; border-top: 1px dashed #7C4A3A; margin: 12px 0; }}
     .item {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #F3E7EA; }}
     .item img {{ width: 92px; height: 92px; object-fit: cover; border-radius: 16px; border: 3px solid #C2E5E9; background: #fff; }}
@@ -2576,7 +2579,7 @@ ESTILO_CUPOM = """
     main { max-width: 440px; margin: 24px auto; background: #fff; border: 1px solid #C5CEE6; border-radius: 16px; padding: 18px; }
     h1 { text-align: center; font-size: 20px; margin: 8px 0 4px; }
     .centro { text-align: center; font-size: 13px; }
-    .logo { width: 96px; height: 96px; border-radius: 50%; object-fit: contain; padding: 8px; box-sizing: border-box; background: #fff; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }
+    .logo { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; box-sizing: border-box; background: #fff; border: 3px solid #7C4A3A; display: block; margin: 0 auto; }
     hr { border: none; border-top: 1px dashed #7C4A3A; margin: 12px 0; }
     .item { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 6px 0; }
     .item span:first-child { flex: 1; }
