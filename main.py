@@ -7614,7 +7614,18 @@ def conferir_catalogo_ifood(request: Request):
 if garantir_senha_admin() or garantir_conferencia_antiga():
     salvar()
 
-iniciar_polling_ifood()
+try:
+    iniciar_polling_ifood()
+except Exception as e:
+    print(f"[AVISO] Nao foi possivel iniciar o polling (iFood/WhatsApp): {e}")
 
 if __name__ == "__main__":
+    # Garante que a pasta dados e o arquivo base existam (essencial para o Windows)
+    os.makedirs(os.path.join(RAIZ, "dados"), exist_ok=True)
+    arquivo_json = os.path.join(RAIZ, "dados", "pdv.json")
+    if not os.path.exists(arquivo_json):
+        with open(arquivo_json, "w", encoding="utf-8") as f:
+            json.dump({}, f)
+            
+    # Roda o servidor liberando acesso para o celular (0.0.0.0)
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORTA", "8090")))
