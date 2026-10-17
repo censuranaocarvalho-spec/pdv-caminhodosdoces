@@ -1,5 +1,6 @@
 name: Build Windows EXEs
-
+permissions:
+  contents: write
 on:
   push:
     branches: [ main ]
@@ -52,3 +53,4 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
