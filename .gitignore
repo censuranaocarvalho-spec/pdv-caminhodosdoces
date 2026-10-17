@@ -6,3 +6,58 @@ __pycache__/
 .history/
 .env
 .env.*
+# Ambientes virtuais
+.venv/
+venv/
+*/venv/
+core-orders/venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Dados locais / logs
+logs/
+dados/
+*.log
+
+# Build
+build/
+dist/
+_update*
+_backup_main.py
+*.spec.bak
+
+# Licença e segredos
+licenca.lic
+.env
+.env.local
+
+# SO
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Pasta duplicata do projeto (clonada dentro dele)
+pdv-caminhodosdoces/
+
+# Catálogos de diagnóstico (70 MB + 36 MB)
+PROJETO_PDV.cat
+PDV_CATALOGO.cat
+codigo_completo_pdv.txt
+
+# Ferramentas de geração de catálogo
+gerar_cat.py
+gerar_cat_pdv.py
+
+# Cópias em core-orders/src (não usar)
+core-orders/src/gerenciador.py
+core-orders/src/gerenciador.spec
+core-orders/src/main.spec
