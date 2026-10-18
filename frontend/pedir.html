@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pedir — Caminho dos Doces</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --rosa: #7C4A3A; --fundo: #FFFBFC; --borda: #F3E7EA; --ok: #166534; --erro: #9B2C2C; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--fundo); color: var(--rosa); font-family: Poppins, Verdana, sans-serif; }
+    main { max-width: 480px; margin: 0 auto; padding: 16px 14px 40px; }
+    .logo { width: 88px; height: 88px; border-radius: 50%; object-fit: cover; border: 3px solid var(--rosa); display: block; margin: 8px auto; background: #fff; }
+    h1 { text-align: center; font-size: 1.25rem; margin: 4px 0 2px; }
+    .sub { text-align: center; font-size: 0.85rem; margin: 0 0 16px; opacity: 0.9; }
+    .card { background: #fff; border: 1px solid var(--borda); border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+    .item { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--borda); }
+    .item:last-child { border-bottom: none; }
+    .item img { width: 72px; height: 72px; border-radius: 14px; object-fit: cover; border: 2px solid #C2E5E9; background: #fff; }
+    .item .info { flex: 1; min-width: 0; }
+    .item .nome { font-weight: 600; font-size: 0.95rem; }
+    .item .preco { font-size: 0.85rem; margin-top: 2px; }
+    .qtd { display: flex; align-items: center; gap: 6px; }
+    .qtd button { width: 32px; height: 32px; border-radius: 10px; border: 1px solid var(--rosa); background: #fff; color: var(--rosa); font-size: 1.1rem; cursor: pointer; }
+    .qtd span { min-width: 1.2rem; text-align: center; font-weight: 600; }
+    label { display: block; font-size: 0.8rem; font-weight: 600; margin: 10px 0 4px; }
+    input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid #E8D5DA; border-radius: 12px; font: inherit; color: var(--rosa); background: #FFFBFC; }
+    textarea { min-height: 64px; resize: vertical; }
+    .linha { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .totais { font-weight: 600; margin-top: 8px; }
+    .totais div { display: flex; justify-content: space-between; margin: 4px 0; }
+    .acao { width: 100%; margin-top: 12px; padding: 14px; border: none; border-radius: 14px; background: var(--rosa); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+    .acao:disabled { opacity: 0.5; cursor: not-allowed; }
+    .aviso { margin-top: 10px; font-size: 0.85rem; }
+    .aviso.erro { color: var(--erro); }
+    .aviso.ok { color: var(--ok); }
+    .pix-box { text-align: center; }
+    .pix-box img { max-width: 220px; width: 100%; margin: 8px auto; display: block; }
+    .pix-copia { word-break: break-all; font-size: 0.75rem; background: #FFFBFC; border: 1px dashed #E8D5DA; border-radius: 12px; padding: 10px; margin: 8px 0; cursor: pointer; }
+    .hidden { display: none !important; }
+    .passo { font-size: 0.75rem; text-align: center; margin-bottom: 8px; opacity: 0.8; }
+  </style>
+</head>
+<body>
+  <main>
+    <img class="logo" id="logo" src="/static/logo.png" alt="Caminho dos Doces">
+    <h1>Caminho dos Doces</h1>
+    <p class="sub" id="loja-sub">Monte seu pedido · pagamento Pix</p>
+
+    <div id="tela-pedido">
+      <p class="passo">1 · Escolha os doces</p>
+      <div class="card" id="lista-cardapio">Carregando cardápio…</div>
+
+      <p class="passo">2 · Seus dados</p>
+      <div class="card">
+        <label for="nome">Nome</label>
+        <input id="nome" autocomplete="name" maxlength="80" placeholder="Seu nome">
+        <div class="linha">
+          <div>
+            <label for="telefone">WhatsApp</label>
+            <input id="telefone" inputmode="tel" autocomplete="tel" placeholder="(61) 99999-9999">
+          </div>
+          <div>
+            <label for="email">E-mail (Pix)</label>
+            <input id="email" type="email" autocomplete="email" placeholder="voce@email.com">
+          </div>
+        </div>
+        <label for="entrega">Entrega</label>
+        <select id="entrega">
+          <option value="Retirada na loja">Retirada na loja</option>
+          <option value="Motoboy da loja">Motoboy da loja</option>
+          <option value="Uber / 99 Entregas">Uber / 99 Entregas</option>
+        </select>
+        <div id="bloco-endereco" class="hidden">
+          <label for="endereco">Endereço completo</label>
+          <textarea id="endereco" placeholder="Rua, número, bairro, referência"></textarea>
+          <label for="distancia">Distância aproximada (km)</label>
+          <input id="distancia" type="number" min="0" step="0.1" value="0">
+        </div>
+        <label for="obs">Observações</label>
+        <textarea id="obs" maxlength="400" placeholder="Alergia, horário, etc."></textarea>
+        <div class="totais" id="totais">
+          <div><span>Subtotal</span><span id="subtotal">R$ 0,00</span></div>
+          <div><span>Entrega</span><span id="taxa">R$ 0,00</span></div>
+          <div><span>Total</span><span id="total">R$ 0,00</span></div>
+        </div>
+        <button class="acao" type="button" id="finalizar">Pagar com Pix</button>
+        <div class="aviso" id="aviso"></div>
+      </div>
+    </div>
+
+    <div id="tela-pix" class="hidden">
+      <p class="passo">3 · Pague o Pix</p>
+      <div class="card pix-box">
+        <p id="pix-texto">Gerando Pix…</p>
+        <img id="pix-qr" alt="QR Pix" class="hidden">
+        <div class="pix-copia hidden" id="pix-copia" title="Toque para copiar"></div>
+        <p class="aviso" id="pix-status">Aguardando pagamento…</p>
+        <button class="acao" type="button" id="pix-conferir">Já paguei — conferir</button>
+      </div>
+    </div>
+
+    <div id="tela-ok" class="hidden">
+      <div class="card" style="text-align:center">
+        <h2>Pedido recebido!</h2>
+        <p id="ok-texto">Pagamento confirmado. A loja já está preparando.</p>
+        <p class="sub" id="ok-id"></p>
+      </div>
+    </div>
+  </main>
+  <script>
+    const dinheiro = (n) => Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    let cardapio = [];
+    let qtds = {};
+    let orderId = "";
+    let pollTimer = null;
+
+    function taxaEntrega() {
+      const entrega = document.getElementById("entrega").value;
+      const km = Math.max(0, Number(document.getElementById("distancia").value || 0));
+      if (entrega !== "Motoboy da loja" && entrega !== "Entrega particular") return 0;
+      const base = 10;
+      const inclusos = 5;
+      if (km <= inclusos) return base;
+      return Math.round((base + (km - inclusos) * 2) * 100) / 100;
+    }
+
+    function atualizarTotais() {
+      let sub = 0;
+      cardapio.forEach((item) => {
+        const q = qtds[item.id] || 0;
+        sub += q * Number(item.preco || 0);
+      });
+      const taxa = taxaEntrega();
+      document.getElementById("subtotal").textContent = dinheiro(sub);
+      document.getElementById("taxa").textContent = dinheiro(taxa);
+      document.getElementById("total").textContent = dinheiro(sub + taxa);
+      return { subtotal: Math.round(sub * 100) / 100, taxa, total: Math.round((sub + taxa) * 100) / 100 };
+    }
+
+    function desenhar() {
+      const box = document.getElementById("lista-cardapio");
+      if (!cardapio.length) {
+        box.textContent = "Nenhum doce disponível no momento.";
+        return;
+      }
+      box.innerHTML = cardapio.map((item) => {
+        const q = qtds[item.id] || 0;
+        const foto = item.foto || "/static/logo.png";
+        const obs = item.observacao ? `<div style="font-size:12px;font-weight:400">${item.observacao}</div>` : "";
+        return `<div class="item" data-id="${item.id}">
+          <img src="${foto}" alt="">
+          <div class="info"><div class="nome">${item.nome}${obs}</div><div class="preco">${dinheiro(item.preco)}</div></div>
+          <div class="qtd">
+            <button type="button" data-menos="${item.id}">−</button>
+            <span>${q}</span>
+            <button type="button" data-mais="${item.id}">+</button>
+          </div>
+        </div>`;
+      }).join("");
+      box.querySelectorAll("[data-mais]").forEach((b) => b.onclick = () => {
+        const id = b.getAttribute("data-mais");
+        qtds[id] = (qtds[id] || 0) + 1;
+        desenhar();
+        atualizarTotais();
+      });
+      box.querySelectorAll("[data-menos]").forEach((b) => b.onclick = () => {
+        const id = b.getAttribute("data-menos");
+        qtds[id] = Math.max(0, (qtds[id] || 0) - 1);
+        desenhar();
+        atualizarTotais();
+      });
+      atualizarTotais();
+    }
+
+    document.getElementById("entrega").onchange = () => {
+      const e = document.getElementById("entrega").value;
+      document.getElementById("bloco-endereco").classList.toggle("hidden", e === "Retirada na loja");
+      atualizarTotais();
+    };
+    document.getElementById("distancia").oninput = atualizarTotais;
+
+    async function carregar() {
+      const aviso = document.getElementById("aviso");
+      try {
+        const r = await fetch("/api/pedido-online/cardapio");
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || "Pedido online indisponível.");
+        cardapio = d.itens || [];
+        if (d.loja) document.getElementById("loja-sub").textContent = `${d.loja} · pagamento Pix`;
+        desenhar();
+      } catch (e) {
+        document.getElementById("lista-cardapio").textContent = e.message;
+        aviso.textContent = e.message;
+        aviso.className = "aviso erro";
+      }
+    }
+
+    function itensSelecionados() {
+      return cardapio.filter((i) => (qtds[i.id] || 0) > 0).map((i) => ({
+        productId: i.id,
+        productName: i.nome,
+        quantity: qtds[i.id],
+        unitPrice: Number(i.preco)
+      }));
+    }
+
+    document.getElementById("finalizar").onclick = async () => {
+      const aviso = document.getElementById("aviso");
+      const items = itensSelecionados();
+      if (!items.length) {
+        aviso.textContent = "Escolha pelo menos um doce.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      const nome = document.getElementById("nome").value.trim();
+      const telefone = document.getElementById("telefone").value.trim();
+      const email = document.getElementById("email").value.trim();
+      if (!nome || !telefone || !email) {
+        aviso.textContent = "Preencha nome, WhatsApp e e-mail.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      const entrega = document.getElementById("entrega").value;
+      const endereco = document.getElementById("endereco").value.trim();
+      if (entrega !== "Retirada na loja" && !endereco) {
+        aviso.textContent = "Informe o endereço da entrega.";
+        aviso.className = "aviso erro";
+        return;
+      }
+      aviso.textContent = "Criando pedido e Pix…";
+      aviso.className = "aviso";
+      document.getElementById("finalizar").disabled = true;
+      try {
+        const r = await fetch("/api/pedido-online", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nome, telefone, emailCliente: email, entrega, endereco,
+            distanciaKm: Number(document.getElementById("distancia").value || 0),
+            observacoes: document.getElementById("obs").value,
+            items
+          })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Não foi possível criar o pedido.");
+        orderId = d.orderId;
+        document.getElementById("tela-pedido").classList.add("hidden");
+        document.getElementById("tela-pix").classList.remove("hidden");
+        mostrarPix(d);
+        pollTimer = setInterval(conferir, 4000);
+      } catch (e) {
+        aviso.textContent = e.message;
+        aviso.className = "aviso erro";
+      } finally {
+        document.getElementById("finalizar").disabled = false;
+      }
+    };
+
+    function mostrarPix(d) {
+      const parte = (d.partes && d.partes[0]) || {};
+      document.getElementById("pix-texto").textContent = `Pix · ${dinheiro(parte.valor || d.total || 0)} · pedido ${d.orderId || ""}`;
+      const img = document.getElementById("pix-qr");
+      const copia = document.getElementById("pix-copia");
+      if (parte.qrBase64) {
+        img.src = parte.qrBase64.startsWith("data:") ? parte.qrBase64 : `data:image/png;base64,${parte.qrBase64}`;
+        img.classList.remove("hidden");
+      }
+      if (parte.qrCode) {
+        copia.textContent = parte.qrCode;
+        copia.classList.remove("hidden");
+        copia.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(parte.qrCode);
+            document.getElementById("pix-status").textContent = "Chave Pix copiada.";
+          } catch (_) {
+            document.getElementById("pix-status").textContent = "Selecione e copie a chave manualmente.";
+          }
+        };
+      }
+      document.getElementById("pix-status").textContent = parte.statusTexto || "Aguardando pagamento…";
+    }
+
+    async function conferir() {
+      if (!orderId) return;
+      try {
+        const r = await fetch(`/api/pedido-online/status/${orderId}`);
+        const d = await r.json();
+        if (!r.ok) return;
+        if (d.pago || d.cozinhaStatus === "NA_COZINHA") {
+          if (pollTimer) clearInterval(pollTimer);
+          document.getElementById("tela-pix").classList.add("hidden");
+          document.getElementById("tela-ok").classList.remove("hidden");
+          document.getElementById("ok-id").textContent = orderId;
+          return;
+        }
+        if (d.partes && d.partes[0]) mostrarPix(d);
+      } catch (_) {}
+    }
+    document.getElementById("pix-conferir").onclick = conferir;
+    carregar();
+  </script>
+</body>
+</html>

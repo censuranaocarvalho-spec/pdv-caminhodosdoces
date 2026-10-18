@@ -1,5 +1,6 @@
 import sys
 import os
+import signal
 import subprocess
 import socket
 import time
@@ -42,24 +43,31 @@ log = logging.getLogger("gerenciador")
 def eh_windows() -> bool:
     return sys.platform == "win32"
 
-def achar_main_exe() -> Path | None:
-    """Procura o servidor empacotado ao lado do gerenciador."""
-    candidatos = [
-        RAIZ / "main.exe",
-        RAIZ / "main" / "main.exe",
-    ]
+def achar_main_binario() -> Path | None:
+    """Procura o servidor empacotado ao lado do gerenciador (Windows ou Linux)."""
+    if eh_windows():
+        candidatos = [
+            RAIZ / "main.exe",
+            RAIZ / "main" / "main.exe",
+        ]
+    else:
+        candidatos = [
+            RAIZ / "main" / "main",
+            RAIZ / "main",
+        ]
     for caminho in candidatos:
-        if caminho.is_file():
+        if caminho.is_file() and os.access(caminho, os.X_OK):
+            return caminho
+        if caminho.is_file() and eh_windows():
             return caminho
     return None
 
 
 def comando_do_pdv():
     """Retorna (argv, cwd) para subir o PDV sem depender de Python no PC."""
-    if eh_windows():
-        main_exe = achar_main_exe()
-        if main_exe is not None:
-            return [str(main_exe)], str(main_exe.parent)
+    main_bin = achar_main_binario()
+    if main_bin is not None:
+        return [str(main_bin)], str(main_bin.parent)
     py_win = RAIZ / ".venv" / "Scripts" / "python.exe"
     py_nix = RAIZ / ".venv" / "bin" / "python"
     main_py = RAIZ / "main.py"
@@ -116,7 +124,7 @@ def atualizar_se_necessario(status_cb) -> bool:
 
         protegidas = {
             ".venv", "logs", "dados", ".git",
-            "main.exe", "gerenciador.exe", "main", "_internal", "frontend",
+            "main.exe", "gerenciador.exe", "gerenciador", "main", "_internal", "frontend",
         }
         status_cb("Aplicando atualizacao...")
         for item in sub.iterdir():
@@ -160,7 +168,8 @@ class WorkerThread(QThread):
             cmd, cwd = comando_do_pdv()
             if not cmd:
                 msg = (
-                    "Nao achei o main.exe. Deixe a pasta main/ (com main.exe) "
+                    "Nao achei o servidor empacotado. Deixe a pasta main/ "
+                    "(com main.exe no Windows ou main no Linux) "
                     "na mesma pasta deste gerenciador, ou use o zip completo da Release."
                 )
                 log.error(msg)
@@ -169,11 +178,15 @@ class WorkerThread(QThread):
             log.info(f"Iniciando PDV: {' '.join(cmd)} (cwd={cwd})")
 
             flags = 0
+            kwargs = {"cwd": cwd}
             if eh_windows():
                 flags = subprocess.CREATE_NO_WINDOW
+                kwargs["creationflags"] = flags
+            else:
+                kwargs["start_new_session"] = True
 
             try:
-                subprocess.Popen(cmd, cwd=cwd, creationflags=flags)
+                subprocess.Popen(cmd, **kwargs)
             except Exception as e:
                 log.error(f"Falha ao iniciar: {e}")
                 self.concluido_signal.emit(False, f"Falha ao iniciar: {e}")
@@ -190,7 +203,7 @@ class WorkerThread(QThread):
             self.concluido_signal.emit(
                 False,
                 "O PDV nao subiu na porta 8090. Veja logs/gerenciador.log "
-                "e confira se a pasta main/ esta ao lado do gerenciador.exe.",
+                "e confira se a pasta main/ esta ao lado do gerenciador.",
             )
 
     def executar_desligar(self):
@@ -198,7 +211,17 @@ class WorkerThread(QThread):
         if eh_windows():
             subprocess.run(["taskkill", "/F", "/IM", "main.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
+            # Empacotado (binário main) ou desenvolvimento (python main.py)
+            subprocess.run(["pkill", "-f", "/main/main"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             subprocess.run(["pkill", "-f", "main.py"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Porta 8090: encerra quem estiver escutando (fallback)
+            try:
+                out = subprocess.check_output(["fuser", "8090/tcp"], stderr=subprocess.DEVNULL, text=True)
+                for pid in out.split():
+                    if pid.strip().isdigit():
+                        os.kill(int(pid.strip()), signal.SIGTERM)
+            except Exception:
+                pass
         time.sleep(0.5)
         self.concluido_signal.emit(True, "O PDV esta desligado")
 

@@ -87,7 +87,11 @@ PRAZO_RECIBO_DIAS = 365
 PERFIL_WHATSAPP = os.path.join(RAIZ, "dados", "whatsapp-perfil")
 CAMINHO_LOGO = os.path.join(FRONTEND, "logo.png")
 ARQUIVO_LICENCA = os.path.join(RAIZ, "dados", "licenca.json")
+ARQUIVO_TUNEL = os.path.join(RAIZ, "dados", "tunel.json")
+PASTA_BIN = os.path.join(RAIZ, "dados", "bin")
 PORTA_WHATSAPP = 9333
+TUNEL_PROC = {"proc": None, "log": ""}
+PEDIDO_ONLINE_RATE = {}  # ip -> [timestamps]
 JUROS_MES = 0.0199
 WHATSAPP_DONA = "5561994429261"
 PLANOS_LICENCA = {
@@ -97,6 +101,79 @@ PLANOS_LICENCA = {
     "VITALICIA": {"nome": "Vitalícia", "dias": None},
     "AVULSO": {"nome": "Avulso (data manual)", "dias": None},
 }
+
+# Abas do PDV (= data-aba) + recursos. Dono libera por modalidade ou à mão.
+MODULOS_PDV = [
+    {"id": "caixa", "nome": "Caixa"},
+    {"id": "cozinha", "nome": "Cozinha"},
+    {"id": "financeiro", "nome": "Financeiro"},
+    {"id": "motoboy", "nome": "Motoboy"},
+    {"id": "cardapio", "nome": "Cardápio"},
+    {"id": "agenda", "nome": "Agenda"},
+    {"id": "almoxarifado", "nome": "Almoxarifado"},
+    {"id": "admin", "nome": "Administrativo"},
+    {"id": "informativo", "nome": "Informativo"},
+    {"id": "pedido_online", "nome": "Pedido online (link público)"},
+]
+IDS_MODULOS = [m["id"] for m in MODULOS_PDV]
+MODALIDADES = {
+    "BASICO": {
+        "nome": "Básico",
+        "precoSugerido": 79.0,
+        "modulos": ["caixa", "cozinha", "cardapio", "admin", "informativo"],
+    },
+    "INTERMEDIARIO": {
+        "nome": "Intermediário",
+        "precoSugerido": 129.0,
+        "modulos": [
+            "caixa", "cozinha", "financeiro", "motoboy", "cardapio", "agenda",
+            "admin", "informativo", "pedido_online",
+        ],
+    },
+    "COMPLETO": {
+        "nome": "Completo",
+        "precoSugerido": 199.0,
+        "modulos": list(IDS_MODULOS),
+    },
+}
+
+
+def _normalizar_modulos(lista) -> list:
+    if not isinstance(lista, list):
+        return list(IDS_MODULOS)
+    vistos = set()
+    saida = []
+    for item in lista:
+        mid = str(item or "").strip().lower()
+        if mid in IDS_MODULOS and mid not in vistos:
+            vistos.add(mid)
+            saida.append(mid)
+    return saida if saida else list(IDS_MODULOS)
+
+
+def _inferir_modalidade(modulos: list) -> str:
+    conjunto = set(modulos)
+    for mid, meta in MODALIDADES.items():
+        if conjunto == set(meta["modulos"]):
+            return mid
+    return "CUSTOM"
+
+
+def resolver_modulos_licenca(dados: dict) -> tuple:
+    """Retorna (modalidade, modulos). Instalação antiga sem campo = COMPLETO."""
+    if "modulos" not in dados and "modalidade" not in dados:
+        return "COMPLETO", list(IDS_MODULOS)
+    modalidade = str(dados.get("modalidade") or "").strip().upper()
+    if modalidade == "COMPLETO":
+        return "COMPLETO", list(IDS_MODULOS)
+    if modalidade in MODALIDADES and "modulos" not in dados:
+        return modalidade, list(MODALIDADES[modalidade]["modulos"])
+    modulos = _normalizar_modulos(dados.get("modulos"))
+    if modalidade in MODALIDADES and set(modulos) == set(MODALIDADES[modalidade]["modulos"]):
+        return modalidade, modulos
+    if modalidade == "CUSTOM":
+        return "CUSTOM", modulos
+    return _inferir_modalidade(modulos), modulos
 
 
 def ajustar_logo(origem, destino: str = "", lado: int = 512, margem_pct: float = 0.0) -> str:
@@ -174,6 +251,9 @@ def licenca_padrao() -> dict:
         "observacao": "",
         "ativa": True,
         "avisoDias": 7,
+        "modalidade": "COMPLETO",
+        "modulos": list(IDS_MODULOS),
+        "operadores": [],
         "historico": [],
         "cobrancaMp": {},
     }
@@ -191,7 +271,7 @@ def ler_licenca() -> dict:
     if not isinstance(dados, dict):
         return base
     for chave in base:
-        if chave in ("historico", "cobrancaMp"):
+        if chave in ("historico", "cobrancaMp", "modulos", "operadores"):
             continue
         if chave in dados:
             base[chave] = dados[chave]
@@ -199,6 +279,11 @@ def ler_licenca() -> dict:
     base["historico"] = hist if isinstance(hist, list) else []
     cob = dados.get("cobrancaMp")
     base["cobrancaMp"] = cob if isinstance(cob, dict) else {}
+    ops = dados.get("operadores")
+    base["operadores"] = ops if isinstance(ops, list) else []
+    modalidade, modulos = resolver_modulos_licenca(dados)
+    base["modalidade"] = modalidade
+    base["modulos"] = modulos
     return base
 
 
@@ -237,6 +322,9 @@ def status_licenca() -> dict:
     valor = float(dados.get("valor") or 0)
     cob = dados.get("cobrancaMp") if isinstance(dados.get("cobrancaMp"), dict) else {}
     cob_status = str(cob.get("status") or "")
+    modalidade, modulos = resolver_modulos_licenca(dados)
+    meta_mod = MODALIDADES.get(modalidade) or {}
+    valor_sugerido = float(meta_mod.get("precoSugerido") or 0) if meta_mod else 0.0
     return {
         "plano": plano,
         "planoNome": meta["nome"],
@@ -252,6 +340,20 @@ def status_licenca() -> dict:
         "diasRestantes": dias,
         "estado": estado,
         "podeVender": estado in ("OK", "AVISO"),
+        "modalidade": modalidade,
+        "modalidadeNome": meta_mod.get("nome") or ("Custom" if modalidade == "CUSTOM" else modalidade),
+        "modulos": modulos,
+        "valorSugerido": valor_sugerido,
+        "modulosDisponiveis": list(MODULOS_PDV),
+        "modalidades": [
+            {
+                "id": mid,
+                "nome": m["nome"],
+                "precoSugerido": m["precoSugerido"],
+                "modulos": list(m["modulos"]),
+            }
+            for mid, m in MODALIDADES.items()
+        ],
         "planos": [{"id": k, "nome": v["nome"], "dias": v["dias"]} for k, v in PLANOS_LICENCA.items()],
         "historico": list(dados.get("historico") or [])[-12:],
         "cobrancaMp": {
@@ -373,6 +475,9 @@ async def trancar_loja(request: Request, call_next):
         or caminho.startswith("/c/")
         or caminho == "/cardapio"
         or caminho.startswith("/cardapio/")
+        or caminho == "/pedir"
+        or caminho.startswith("/pedir/")
+        or caminho.startswith("/api/pedido-online")
         or caminho == "/api/atualizacao"
         or caminho == "/api/licenca/status"
         or caminho == "/api/mercadopago/retorno"
@@ -675,17 +780,233 @@ def ip_da_rede() -> str:
         return "127.0.0.1"
 
 
+def ler_tunel() -> dict:
+    base = {"token": "", "urlPublica": "", "modo": "token", "ligado": False}
+    if not os.path.isfile(ARQUIVO_TUNEL):
+        return base
+    try:
+        with open(ARQUIVO_TUNEL, encoding="utf-8") as arquivo:
+            dados = json.load(arquivo)
+    except (OSError, json.JSONDecodeError):
+        return base
+    if not isinstance(dados, dict):
+        return base
+    base["token"] = str(dados.get("token") or "").strip()
+    base["urlPublica"] = str(dados.get("urlPublica") or "").strip().rstrip("/")
+    base["modo"] = "rapido" if str(dados.get("modo") or "") == "rapido" else "token"
+    proc = TUNEL_PROC.get("proc")
+    base["ligado"] = bool(proc and proc.poll() is None)
+    return base
+
+
+def gravar_tunel(dados: dict) -> None:
+    os.makedirs(os.path.dirname(ARQUIVO_TUNEL), exist_ok=True)
+    with open(ARQUIVO_TUNEL, "w", encoding="utf-8") as arquivo:
+        json.dump({
+            "token": str(dados.get("token") or "").strip(),
+            "urlPublica": str(dados.get("urlPublica") or "").strip().rstrip("/"),
+            "modo": "rapido" if str(dados.get("modo") or "") == "rapido" else "token",
+        }, arquivo, ensure_ascii=False, indent=2)
+
+
+def url_tunel_publica() -> str:
+    url = (ler_tunel().get("urlPublica") or "").strip().rstrip("/")
+    if url.startswith("https://") or url.startswith("http://"):
+        return url
+    return ""
+
+
 def base_publica(request: Request) -> str:
-    host = request.headers.get("host", "127.0.0.1:8090")
+    tunel = url_tunel_publica()
+    if tunel:
+        return tunel
+    # Preferir host do request (ex.: tunnel já encaminhando) quando não for localhost
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "127.0.0.1:8090")
+    proto = (request.headers.get("x-forwarded-proto") or "http").split(",")[0].strip()
     nome, _, porta = host.partition(":")
-    porta = porta or "8090"
-    if nome in ("127.0.0.1", "localhost", "0.0.0.0"):
-        nome = ip_da_rede()
-    return f"http://{nome}:{porta}"
+    if nome not in ("127.0.0.1", "localhost", "0.0.0.0"):
+        if porta and porta not in ("80", "443"):
+            return f"{proto}://{nome}:{porta}"
+        return f"{proto}://{nome}"
+    porta = porta or os.getenv("PORTA", "8090")
+    return f"http://{ip_da_rede()}:{porta}"
+
+
+def link_pedir(request: Request | None = None) -> str:
+    if request is not None:
+        return f"{base_publica(request)}/pedir"
+    tunel = url_tunel_publica()
+    if tunel:
+        return f"{tunel}/pedir"
+    return f"http://{ip_da_rede()}:{os.getenv('PORTA', '8090')}/pedir"
 
 
 def link_cupom(request: Request, order_id: str) -> str:
     return f"{base_publica(request)}/c/{order_id}"
+
+
+def _cloudflared_bin() -> str:
+    local = os.path.join(PASTA_BIN, "cloudflared")
+    if os.path.isfile(local) and os.access(local, os.X_OK):
+        return local
+    which = shutil.which("cloudflared")
+    if which:
+        return which
+    return local
+
+
+def garantir_cloudflared() -> str:
+    caminho = _cloudflared_bin()
+    if os.path.isfile(caminho) and os.access(caminho, os.X_OK):
+        return caminho
+    os.makedirs(PASTA_BIN, exist_ok=True)
+    # Linux amd64 — outras arches: usuário instala cloudflared no PATH
+    arch = os.uname().machine if hasattr(os, "uname") else "x86_64"
+    if arch in ("aarch64", "arm64"):
+        url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+    else:
+        url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+    destino = os.path.join(PASTA_BIN, "cloudflared")
+    try:
+        urllib.request.urlretrieve(url, destino)
+        os.chmod(destino, 0o755)
+    except Exception as erro:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Não baixou o cloudflared. Instale no sistema (cloudflared) ou tente de novo. ({erro})",
+        ) from erro
+    return destino
+
+
+def _ler_url_do_log_tunel(texto: str) -> str:
+    for padrao in (
+        r"https://[a-zA-Z0-9.-]+\.trycloudflare\.com",
+        r"https://[a-zA-Z0-9.-]+\.cfargotunnel\.com",
+    ):
+        m = re.search(padrao, texto or "")
+        if m:
+            return m.group(0).rstrip("/")
+    return ""
+
+
+def _pipe_tunel(proc: subprocess.Popen) -> None:
+    try:
+        assert proc.stderr is not None
+        for linha in proc.stderr:
+            texto = linha.decode("utf-8", errors="replace") if isinstance(linha, bytes) else str(linha)
+            TUNEL_PROC["log"] = (TUNEL_PROC.get("log") or "")[-4000:] + texto
+            url = _ler_url_do_log_tunel(texto)
+            if url:
+                dados = ler_tunel()
+                if dados.get("urlPublica") != url:
+                    dados["urlPublica"] = url
+                    gravar_tunel(dados)
+    except Exception:
+        pass
+
+
+def parar_tunel() -> None:
+    proc = TUNEL_PROC.get("proc")
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    TUNEL_PROC["proc"] = None
+
+
+def iniciar_tunel(modo: str = "token") -> dict:
+    parar_tunel()
+    binario = garantir_cloudflared()
+    porta = os.getenv("PORTA", "8090")
+    dados = ler_tunel()
+    if modo == "rapido":
+        cmd = [binario, "tunnel", "--url", f"http://127.0.0.1:{porta}", "--no-autoupdate"]
+        dados["modo"] = "rapido"
+        dados["urlPublica"] = ""
+    else:
+        token = (dados.get("token") or "").strip()
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="Cole o token do túnel Cloudflare (Zero Trust → Tunnels → Configure) e guarde antes de ligar.",
+            )
+        if not (dados.get("urlPublica") or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Informe a URL pública do túnel (ex.: https://loja.seudominio.com) e guarde.",
+            )
+        cmd = [binario, "tunnel", "run", "--token", token]
+        dados["modo"] = "token"
+    gravar_tunel(dados)
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as erro:
+        raise HTTPException(status_code=500, detail=f"Não iniciou o cloudflared: {erro}") from erro
+    TUNEL_PROC["proc"] = proc
+    TUNEL_PROC["log"] = ""
+    threading.Thread(target=_pipe_tunel, args=(proc,), daemon=True).start()
+    # Túnel rápido: espera a URL aparecer no log
+    if modo == "rapido":
+        for _ in range(40):
+            time.sleep(0.5)
+            url = url_tunel_publica()
+            if url:
+                break
+            if proc.poll() is not None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="O cloudflared encerrou. Veja se a porta 8090 está no ar e tente de novo.",
+                )
+    return status_tunel()
+
+
+def status_tunel() -> dict:
+    dados = ler_tunel()
+    proc = TUNEL_PROC.get("proc")
+    ligado = bool(proc and proc.poll() is None)
+    url = (dados.get("urlPublica") or "").strip().rstrip("/")
+    return {
+        "ok": True,
+        "ligado": ligado,
+        "modo": dados.get("modo") or "token",
+        "temToken": bool((dados.get("token") or "").strip()),
+        "urlPublica": url,
+        "linkPedir": f"{url}/pedir" if url else "",
+        "cloudflared": os.path.isfile(_cloudflared_bin()),
+    }
+
+
+def exigir_pedido_online_liberado() -> None:
+    if not modulo_ativo("pedido_online"):
+        raise HTTPException(
+            status_code=403,
+            detail="Pedido online não está liberado nesta licença. Peça ao Dono (modalidade Intermediário/Completo).",
+        )
+    exigir_licenca_para_vender()
+    if CAIXA.get("status") != "ABERTO":
+        raise HTTPException(status_code=403, detail="O caixa da loja está fechado. Tente mais tarde.")
+    if not ler_mp().get("accessToken"):
+        raise HTTPException(status_code=403, detail="A loja ainda não conectou o Mercado Pago para receber Pix.")
+
+
+def rate_limit_pedido_online(request: Request, limite: int = 8, janela: int = 600) -> None:
+    ip = (request.client.host if request.client else "") or "0"
+    agora = time.time()
+    lista = [t for t in PEDIDO_ONLINE_RATE.get(ip, []) if agora - t < janela]
+    if len(lista) >= limite:
+        raise HTTPException(status_code=429, detail="Muitos pedidos deste aparelho. Aguarde alguns minutos.")
+    lista.append(agora)
+    PEDIDO_ONLINE_RATE[ip] = lista
 
 
 def link_cobranca_mp(request: Request, order_id: str, indice: int = 0) -> str:
@@ -3209,12 +3530,14 @@ def listar_cardapio():
 
 
 @app.put("/api/cardapio")
-def salvar_cardapio(payload: CardapioSalvo):
+def salvar_cardapio(payload: CardapioSalvo, request: Request):
+    exigir_modulo(request, "cardapio")
     return gravar_cardapio(payload.itens)
 
 
 @app.post("/api/cardapio/enviar")
-def enviar_cardapio(payload: EnvioCardapio):
+def enviar_cardapio(payload: EnvioCardapio, request: Request):
+    exigir_modulo(request, "cardapio")
     if not payload.telefone.strip():
         raise HTTPException(status_code=400, detail="Informe o telefone para enviar o cardápio.")
     pdf = gerar_pdf_cardapio()
@@ -3352,7 +3675,8 @@ def listar_clientes():
 
 
 @app.put("/api/clientes/{cliente_id}")
-def organizar_cliente(cliente_id: str, payload: ClienteAgenda):
+def organizar_cliente(cliente_id: str, payload: ClienteAgenda, request: Request):
+    exigir_modulo(request, "agenda")
     if not payload.telefone.strip():
         raise HTTPException(status_code=400, detail="Informe o telefone.")
     nome = nome_e_sobrenome(payload.nome)
@@ -3384,7 +3708,8 @@ def organizar_cliente(cliente_id: str, payload: ClienteAgenda):
 
 
 @app.delete("/api/clientes/{cliente_id}")
-def apagar_cliente(cliente_id: str):
+def apagar_cliente(cliente_id: str, request: Request):
+    exigir_modulo(request, "agenda")
     antes = len(CLIENTES)
     CLIENTES[:] = [cliente for cliente in CLIENTES if cliente.get("id") != cliente_id]
     if len(CLIENTES) == antes:
@@ -3556,12 +3881,21 @@ def hash_senha(senha: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", senha.encode(), bytes.fromhex(salt), 120_000).hex()
 
 
+SENHA_PADRAO = "123456789"  # 1 a 9 — trocar depois no sistema
+
+
 def garantir_senha_admin() -> bool:
     if ADMIN.get("senha") and ADMIN.get("salt"):
+        # Migra a senha antiga 000000 para o padrão 1–9, se ainda for a padrão velha
+        if secrets.compare_digest(hash_senha("000000", ADMIN["salt"]), ADMIN["senha"]):
+            salt = secrets.token_hex(16)
+            ADMIN["salt"] = salt
+            ADMIN["senha"] = hash_senha(SENHA_PADRAO, salt)
+            return True
         return False
     salt = secrets.token_hex(16)
     ADMIN["salt"] = salt
-    ADMIN["senha"] = hash_senha("000000", salt)
+    ADMIN["senha"] = hash_senha(SENHA_PADRAO, salt)
     ADMIN.setdefault("empresaSaldo", 0.0)
     ADMIN.setdefault("empresaLimite", 0.0)
     ADMIN.setdefault("empresaCartaoUsado", 0.0)
@@ -3581,10 +3915,15 @@ def senha_confere(senha: str) -> bool:
 def garantir_senha_dono() -> bool:
     """Senha só do dono do software (não da operação da loja)."""
     if ADMIN.get("senhaDono") and ADMIN.get("saltDono"):
+        if secrets.compare_digest(hash_senha("000000", ADMIN["saltDono"]), ADMIN["senhaDono"]):
+            salt = secrets.token_hex(16)
+            ADMIN["saltDono"] = salt
+            ADMIN["senhaDono"] = hash_senha(SENHA_PADRAO, salt)
+            return True
         return False
     salt = secrets.token_hex(16)
     ADMIN["saltDono"] = salt
-    ADMIN["senhaDono"] = hash_senha("000000", salt)
+    ADMIN["senhaDono"] = hash_senha(SENHA_PADRAO, salt)
     return True
 
 
@@ -3616,6 +3955,36 @@ def exigir_dono(request: Request) -> None:
             detail="Área do Dono. Digite a senha do Dono para ver dados sensíveis (licença, chaves, assinatura).",
         )
     TOKENS_DONO[token] = time.time() + 4 * 3600
+
+
+def dono_liberado(request: Request) -> bool:
+    token = request.headers.get("x-dono", "")
+    validade = TOKENS_DONO.get(token)
+    return bool(validade and validade >= time.time())
+
+
+def modulo_ativo(modulo: str) -> bool:
+    mid = str(modulo or "").strip().lower()
+    if mid not in IDS_MODULOS:
+        return False
+    _, modulos = resolver_modulos_licenca(ler_licenca())
+    return mid in modulos
+
+
+def exigir_modulo(request: Request, modulo: str) -> None:
+    """Bloqueia API se o módulo não estiver liberado na licença. Dono autenticado ignora."""
+    if dono_liberado(request):
+        return
+    mid = str(modulo or "").strip().lower()
+    if mid not in IDS_MODULOS:
+        raise HTTPException(status_code=500, detail=f"Módulo desconhecido: {modulo}")
+    if modulo_ativo(mid):
+        return
+    nomes = {m["id"]: m["nome"] for m in MODULOS_PDV}
+    raise HTTPException(
+        status_code=403,
+        detail=f"Módulo «{nomes.get(mid, mid)}» não está liberado nesta licença. Peça ao Dono em Administrativo → Licença.",
+    )
 
 
 def resumo_dono() -> dict:
@@ -4482,12 +4851,14 @@ def resumo_periodo(so_mes: bool) -> dict:
 
 
 @app.get("/api/financeiro")
-def listar_financeiro():
+def listar_financeiro(request: Request):
+    exigir_modulo(request, "financeiro")
     return list(reversed(LIVRO_CAIXA))
 
 
 @app.get("/api/financeiro/resumo")
-def financeiro_resumo():
+def financeiro_resumo(request: Request):
+    exigir_modulo(request, "financeiro")
     return {
         "mes": resumo_periodo(True),
         "geral": resumo_periodo(False),
@@ -4503,7 +4874,8 @@ class NovaTaxa(BaseModel):
 
 
 @app.post("/api/taxas", status_code=201)
-def lancar_taxa(payload: NovaTaxa):
+def lancar_taxa(payload: NovaTaxa, request: Request):
+    exigir_modulo(request, "financeiro")
     canal = payload.canal.strip().upper()
     if canal not in ("MOTOBOY", "IFOOD", "NOVENTA"):
         raise HTTPException(status_code=400, detail="Escolha motoboy, iFood ou 99Food.")
@@ -4522,7 +4894,8 @@ def lancar_taxa(payload: NovaTaxa):
 
 
 @app.delete("/api/taxas/{taxa_id}")
-def apagar_taxa(taxa_id: str):
+def apagar_taxa(taxa_id: str, request: Request):
+    exigir_modulo(request, "financeiro")
     antes = len(TAXAS_PAGAS)
     TAXAS_PAGAS[:] = [taxa for taxa in TAXAS_PAGAS if taxa["id"] != taxa_id]
     if len(TAXAS_PAGAS) == antes:
@@ -4571,7 +4944,8 @@ def criado_da_data(data: str) -> str:
 
 
 @app.post("/api/motoboy/conta")
-def conta_motoboy(payload: ContaMotoboy):
+def conta_motoboy(payload: ContaMotoboy, request: Request):
+    exigir_modulo(request, "motoboy")
     return calcular_motoboy(
         payload.salario,
         payload.regime,
@@ -4593,7 +4967,8 @@ def conta_motoboy(payload: ContaMotoboy):
 
 
 @app.post("/api/motoboy/diaria", status_code=201)
-def lancar_diaria(payload: NovaDiaria):
+def lancar_diaria(payload: NovaDiaria, request: Request):
+    exigir_modulo(request, "motoboy")
     nome = payload.nome.strip()
     if not nome:
         raise HTTPException(status_code=400, detail="Informe o nome do motoboy.")
@@ -4614,7 +4989,8 @@ def lancar_diaria(payload: NovaDiaria):
 
 
 @app.post("/api/motoboy/reserva", status_code=201)
-def lancar_reserva(payload: ContaMotoboy):
+def lancar_reserva(payload: ContaMotoboy, request: Request):
+    exigir_modulo(request, "motoboy")
     nome = payload.nome.strip()
     if not nome:
         raise HTTPException(status_code=400, detail="Informe o nome do motoboy.")
@@ -4661,7 +5037,8 @@ def lancar_reserva(payload: ContaMotoboy):
 
 
 @app.delete("/api/motoboy/{item_id}")
-def apagar_folha(item_id: str):
+def apagar_folha(item_id: str, request: Request):
+    exigir_modulo(request, "motoboy")
     antes = len(FOLHA)
     FOLHA[:] = [item for item in FOLHA if item.get("id") != item_id]
     if len(FOLHA) == antes:
@@ -5228,12 +5605,14 @@ def _restam_receitas(item: dict) -> int:
 
 
 @app.get("/api/cozinha")
-def listar_cozinha():
+def listar_cozinha(request: Request):
+    exigir_modulo(request, "cozinha")
     return list(reversed(COZINHA))
 
 
 @app.post("/api/cozinha", status_code=201)
-def registrar_fornada(payload: Fornada):
+def registrar_fornada(payload: Fornada, request: Request):
+    exigir_modulo(request, "cozinha")
     nome = payload.doce.strip()
     if not nome:
         raise HTTPException(status_code=400, detail="Escolha o doce que saiu do forno.")
@@ -5281,7 +5660,8 @@ def registrar_fornada(payload: Fornada):
 
 
 @app.delete("/api/cozinha/{fornada_id}")
-def apagar_fornada(fornada_id: str):
+def apagar_fornada(fornada_id: str, request: Request):
+    exigir_modulo(request, "cozinha")
     fornada = next((item for item in COZINHA if item["id"] == fornada_id), None)
     if not fornada:
         raise HTTPException(status_code=404, detail="Essa fornada não está na cozinha.")
@@ -5303,12 +5683,14 @@ def apagar_fornada(fornada_id: str):
 
 
 @app.get("/api/almoxarifado")
-def listar_almoxarifado():
+def listar_almoxarifado(request: Request):
+    exigir_modulo(request, "almoxarifado")
     return [item_almox_publico(item) for item in ordenar_almox_pvps(ALMOXARIFADO)]
 
 
 @app.post("/api/almoxarifado", status_code=201)
-def criar_mantimento(payload: NovoMantimento):
+def criar_mantimento(payload: NovoMantimento, request: Request):
+    exigir_modulo(request, "almoxarifado")
     cupom = payload.cupom.strip() or "sem nota"
     item = payload.item.strip()
     if not item:
@@ -5351,7 +5733,8 @@ def criar_mantimento(payload: NovoMantimento):
 
 
 @app.post("/api/almoxarifado/{item_id}/usar")
-def usar_mantimento(item_id: str):
+def usar_mantimento(item_id: str, request: Request):
+    exigir_modulo(request, "almoxarifado")
     item = next((entrada for entrada in ALMOXARIFADO if entrada["id"] == item_id), None)
     if not item:
         raise HTTPException(status_code=404, detail="Esse mantimento não está no depósito.")
@@ -5363,7 +5746,8 @@ def usar_mantimento(item_id: str):
 
 
 @app.delete("/api/almoxarifado/{item_id}")
-def apagar_mantimento(item_id: str):
+def apagar_mantimento(item_id: str, request: Request):
+    exigir_modulo(request, "almoxarifado")
     antes = len(ALMOXARIFADO)
     ALMOXARIFADO[:] = [item for item in ALMOXARIFADO if item["id"] != item_id]
     if len(ALMOXARIFADO) == antes:
@@ -5740,12 +6124,14 @@ def escolher_impressora(payload: EscolhaImpressora):
 @app.get("/api/admin")
 def ler_admin(request: Request):
     exigir_admin(request)
+    exigir_modulo(request, "admin")
     return admin_publico()
 
 
 @app.put("/api/admin")
 def gravar_admin(payload: DadosBanco, request: Request):
     exigir_admin(request)
+    exigir_modulo(request, "admin")
     if min(
         payload.empresaSaldo, payload.empresaLimite, payload.empresaCartaoUsado, payload.nubankSaldo,
         payload.metaMes, payload.ifoodSaldo, payload.noventaSaldo, payload.ifoodMensalidade, payload.ifoodIsencao,
@@ -5936,6 +6322,8 @@ class LicencaSalva(BaseModel):
     observacao: str = ""
     ativa: bool = True
     avisoDias: int = 7
+    modalidade: str = "COMPLETO"
+    modulos: list | None = None
 
 
 @app.get("/api/licenca/status")
@@ -5970,11 +6358,32 @@ def salvar_licenca(payload: LicencaSalva, request: Request):
     email_cob = email_valido(payload.emailCobranca) or (payload.emailCobranca or "").strip().lower()
     if (payload.emailCobranca or "").strip() and not email_valido(payload.emailCobranca):
         raise HTTPException(status_code=400, detail="O e-mail da cobrança da licença não é válido.")
+    modalidade = (payload.modalidade or "").strip().upper()
+    if modalidade in MODALIDADES and payload.modulos is None:
+        modulos = list(MODALIDADES[modalidade]["modulos"])
+    elif payload.modulos is not None:
+        modulos = _normalizar_modulos(payload.modulos)
+        if not modulos:
+            raise HTTPException(status_code=400, detail="Marque pelo menos um módulo.")
+        if "admin" not in modulos:
+            modulos.append("admin")
+        if modalidade in MODALIDADES and set(modulos) == set(MODALIDADES[modalidade]["modulos"]):
+            pass
+        else:
+            modalidade = _inferir_modalidade(modulos)
+    elif modalidade in MODALIDADES:
+        modulos = list(MODALIDADES[modalidade]["modulos"])
+    else:
+        modalidade, modulos = resolver_modulos_licenca(ler_licenca())
+    if modalidade not in MODALIDADES and modalidade != "CUSTOM":
+        modalidade = _inferir_modalidade(modulos)
     atual = ler_licenca()
     historico = list(atual.get("historico") or [])
     historico.append({
         "em": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "plano": plano,
+        "modalidade": modalidade,
+        "modulos": list(modulos),
         "valor": round(float(payload.valor), 2),
         "venceEm": _data_br(vence) if vence else "vitalícia",
         "ativa": bool(payload.ativa),
@@ -5992,6 +6401,9 @@ def salvar_licenca(payload: LicencaSalva, request: Request):
         "observacao": (payload.observacao or "").strip()[:400],
         "ativa": bool(payload.ativa),
         "avisoDias": aviso,
+        "modalidade": modalidade,
+        "modulos": modulos,
+        "operadores": atual.get("operadores") if isinstance(atual.get("operadores"), list) else [],
         "historico": historico[-40:],
         "cobrancaMp": atual.get("cobrancaMp") if isinstance(atual.get("cobrancaMp"), dict) else {},
     }
@@ -6312,6 +6724,7 @@ def receber_restante(order_id: str, payload: ReceberRestante, request: Request):
 
 @app.post("/api/pedidos", status_code=201)
 def criar_pedido(payload: NovoPedido, request: Request):
+    exigir_modulo(request, "caixa")
     exigir_licenca_para_vender()
     if CAIXA["status"] != "ABERTO":
         raise HTTPException(status_code=400, detail="O caixa está fechado.")
@@ -8160,6 +8573,285 @@ def conferir_catalogo_ifood(request: Request):
         dados["ultimoCatalogo"] = {k: resumo[k] for k in ("itensIfood", "iguais", "diferentes", "soIfood", "soPdv", "buscadoEm")}
         gravar_ifood_api(dados)
     return resumo
+
+
+class PedidoOnlineBody(BaseModel):
+    nome: str
+    telefone: str
+    emailCliente: str
+    entrega: str = "Retirada na loja"
+    endereco: str = ""
+    distanciaKm: float = 0.0
+    observacoes: str = ""
+    items: list[ItemPedido]
+
+
+class TunelSalva(BaseModel):
+    token: str = ""
+    urlPublica: str = ""
+
+
+@app.get("/pedir", response_class=HTMLResponse)
+def pagina_pedir_online():
+    caminho = os.path.join(FRONTEND, "pedir.html")
+    if not os.path.isfile(caminho):
+        raise HTTPException(status_code=404, detail="Página de pedido online não encontrada.")
+    with open(caminho, encoding="utf-8") as arquivo:
+        return HTMLResponse(arquivo.read())
+
+
+@app.get("/api/pedido-online/cardapio")
+def cardapio_pedido_online():
+    exigir_pedido_online_liberado()
+    itens = []
+    for item in CARDAPIO:
+        if not item.get("ativo", True):
+            continue
+        preco = float(item.get("preco") or 0)
+        if preco <= 0:
+            continue
+        itens.append({
+            "id": item.get("id") or "",
+            "nome": item.get("nome") or "",
+            "preco": preco,
+            "observacao": item.get("observacao") or "",
+            "foto": item.get("foto") or foto_padrao(item.get("id") or ""),
+        })
+    lic = status_licenca()
+    return {"ok": True, "loja": lic.get("loja") or "Caminho dos Doces", "itens": itens}
+
+
+@app.post("/api/pedido-online")
+def criar_pedido_online(payload: PedidoOnlineBody, request: Request):
+    exigir_pedido_online_liberado()
+    rate_limit_pedido_online(request)
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Adicione pelo menos um doce.")
+    email = email_valido(payload.emailCliente)
+    if not email:
+        raise HTTPException(status_code=400, detail="Informe um e-mail válido para o Pix.")
+    # Valida itens contra o cardápio (preço da loja, não o que a cliente mandar)
+    por_id = {str(i.get("id")): i for i in CARDAPIO if i.get("ativo", True)}
+    itens_ok = []
+    for bruto in payload.items:
+        item = por_id.get(bruto.productId)
+        if not item:
+            raise HTTPException(status_code=400, detail=f"Doce indisponível: {bruto.productName or bruto.productId}")
+        preco = float(item.get("preco") or 0)
+        if preco <= 0:
+            raise HTTPException(status_code=400, detail=f"{item.get('nome')} não está à venda pelo link.")
+        qtd = max(1, int(bruto.quantity or 0))
+        itens_ok.append(ItemPedido(
+            productId=str(item.get("id")),
+            productName=str(item.get("nome") or ""),
+            quantity=qtd,
+            unitPrice=preco,
+        ))
+    entrega = (payload.entrega or "Retirada na loja").strip()
+    if entrega not in ("Retirada na loja", "Motoboy da loja", "Entrega particular", "Uber / 99 Entregas"):
+        entrega = "Retirada na loja"
+    distancia = round(max(float(payload.distanciaKm or 0), 0), 2)
+    if entrega in ENTREGAS_DA_LOJA and not (payload.endereco or "").strip():
+        raise HTTPException(status_code=400, detail="Informe o endereço da entrega.")
+    novo = NovoPedido(
+        nome=payload.nome,
+        telefone=payload.telefone,
+        emailCliente=email,
+        origem="PEDIDO_ONLINE",
+        endereco=(payload.endereco or "").strip(),
+        entrega=entrega,
+        distanciaKm=distancia,
+        observacoes=(payload.observacoes or "").strip()[:400],
+        items=itens_ok,
+        pagamento="PIX_INTEGRAL",
+        mercadoPago=True,
+        valorCobrado=-1,
+    )
+    # Reusa o fluxo do caixa (sem exigir módulo caixa via x-dono falso — chama lógica interna)
+    resultado = _criar_pedido_interno(novo, request)
+    pedido = next((p for p in PEDIDOS if p["orderId"] == resultado["pedido"]["orderId"]), None)
+    if not pedido:
+        raise HTTPException(status_code=500, detail="Pedido criado, mas não encontrado.")
+    # Gera Pix imediatamente
+    token = token_mp()
+    dados_pix, efetivou = conferir_e_efetivar(pedido, token)
+    if pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO":
+        for indice, parte in enumerate(pedido["partes"]):
+            if not parte.get("mp") or parte.get("status") in ("PAGO", "ESTORNADO"):
+                continue
+            if parte["mp"] == "PIX" and not parte.get("pagamentoId"):
+                dados_pix[indice] = criar_pix_parte(pedido, indice, parte, token)
+        salvar()
+    estado = estado_cobranca(request, pedido, dados_pix, efetivou)
+    return {
+        "ok": True,
+        "orderId": pedido["orderId"],
+        "total": pedido.get("total"),
+        "aguardandoPagamento": pedido.get("cozinhaStatus") == "AGUARDANDO_PAGAMENTO",
+        "partes": estado.get("partes") or [],
+    }
+
+
+@app.get("/api/pedido-online/status/{order_id}")
+def status_pedido_online(order_id: str, request: Request):
+    if not modulo_ativo("pedido_online"):
+        raise HTTPException(status_code=403, detail="Pedido online não está liberado.")
+    pedido = next((p for p in PEDIDOS if p["orderId"] == order_id), None)
+    if not pedido or pedido.get("origem") != "PEDIDO_ONLINE":
+        raise HTTPException(status_code=404, detail="Pedido não encontrado.")
+    try:
+        token = token_mp()
+        dados_pix, efetivou = conferir_e_efetivar(pedido, token)
+    except HTTPException:
+        dados_pix, efetivou = {}, False
+    estado = estado_cobranca(request, pedido, dados_pix, efetivou)
+    pago = pedido.get("cozinhaStatus") == "NA_COZINHA" or all(
+        p.get("status") == "PAGO" for p in (pedido.get("partes") or []) if p.get("mp")
+    )
+    return {
+        "ok": True,
+        "orderId": order_id,
+        "pago": pago,
+        "cozinhaStatus": pedido.get("cozinhaStatus"),
+        "partes": estado.get("partes") or [],
+        "efetivouAgora": efetivou,
+    }
+
+
+@app.get("/api/tunel")
+def ver_tunel(request: Request):
+    exigir_dono(request)
+    st = status_tunel()
+    st["linkPedir"] = link_pedir(request) if st.get("urlPublica") else st.get("linkPedir") or ""
+    st["moduloAtivo"] = modulo_ativo("pedido_online")
+    return st
+
+
+@app.post("/api/tunel")
+def salvar_tunel_cfg(payload: TunelSalva, request: Request):
+    exigir_dono(request)
+    dados = ler_tunel()
+    dados["token"] = (payload.token or "").strip()
+    dados["urlPublica"] = (payload.urlPublica or "").strip().rstrip("/")
+    gravar_tunel(dados)
+    return status_tunel()
+
+
+class TunelLigar(BaseModel):
+    modo: str = "token"  # token | rapido
+
+
+@app.post("/api/tunel/iniciar")
+def iniciar_tunel_api(payload: TunelLigar, request: Request):
+    exigir_dono(request)
+    modo = "rapido" if (payload.modo or "").strip().lower() == "rapido" else "token"
+    return iniciar_tunel(modo)
+
+
+@app.post("/api/tunel/desligar")
+def desligar_tunel_api(request: Request):
+    exigir_dono(request)
+    parar_tunel()
+    return status_tunel()
+
+
+def _criar_pedido_interno(payload: NovoPedido, request: Request) -> dict:
+    """Mesma lógica de criar_pedido, sem exigir_modulo(caixa) — usado pelo link público."""
+    exigir_licenca_para_vender()
+    if CAIXA["status"] != "ABERTO":
+        raise HTTPException(status_code=400, detail="O caixa está fechado.")
+    if not payload.telefone.strip():
+        raise HTTPException(status_code=400, detail="Informe o telefone.")
+    payload.nome = nome_e_sobrenome(payload.nome)
+    payload.cpf = cpf_formatado(payload.cpf)
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="Adicione pelo menos um doce.")
+
+    subtotal = round(sum(i.quantity * i.unitPrice for i in payload.items), 2)
+    entrega = payload.entrega.strip()
+    distancia = round(max(payload.distanciaKm, 0), 2)
+    if entrega in ENTREGAS_DA_LOJA:
+        taxa = calcular_taxa_entrega(entrega, distancia)
+        taxa_controle = 0.0
+    elif entrega == "Uber / 99 Entregas":
+        taxa = 0.0
+        taxa_controle = round(max(payload.taxaControle, 0), 2)
+        distancia = 0.0
+    else:
+        taxa = 0.0
+        taxa_controle = 0.0
+        distancia = 0.0
+    valor_tabela = round(subtotal + taxa, 2)
+    valor_cobrado = valor_tabela if payload.valorCobrado < 0 else round(max(payload.valorCobrado, 0), 2)
+    resultado = round(valor_cobrado - valor_tabela, 2)
+    email_cliente = ""
+    if payload.mercadoPago and not ler_mp().get("accessToken"):
+        raise HTTPException(status_code=400, detail="O Mercado Pago não está conectado.")
+    conta = fechar_pagamento(payload, valor_cobrado, juros_pdv=not payload.mercadoPago)
+    if payload.mercadoPago:
+        aplicar_taxa_mp(conta, payload.parcelas or 1)
+        partes_mp = [parte for parte in conta["partes"] if parte.get("mp")]
+        if not partes_mp:
+            raise HTTPException(status_code=400, detail="Dinheiro não passa pelo Mercado Pago.")
+        if any(parte["mp"] == "PIX" for parte in partes_mp):
+            email_cliente = email_valido(payload.emailCliente)
+            if not email_cliente:
+                raise HTTPException(status_code=400, detail="O Pix do Mercado Pago pede o e-mail da cliente.")
+    espera_mp = any(parte.get("mp") for parte in conta["partes"])
+    tipo_lancamento = "SINAL" if conta["restante"] > 0 else "VENDA"
+
+    pedido_id = f"ORD-{uuid.uuid4().hex[:6].upper()}"
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    pedido = {
+        "orderId": pedido_id,
+        "nome": payload.nome.strip(),
+        "telefone": payload.telefone.strip(),
+        "cpf": payload.cpf.strip(),
+        "origem": payload.origem.strip() or "PEDIDO_ONLINE",
+        "endereco": payload.endereco.strip(),
+        "cep": payload.cep.strip(),
+        "dataEvento": payload.dataEvento,
+        "horario": payload.horario.strip(),
+        "entrega": entrega,
+        "distanciaKm": distancia,
+        "taxaControle": taxa_controle,
+        "observacoes": payload.observacoes.strip(),
+        "items": [i.model_dump() for i in payload.items],
+        "subtotal": subtotal,
+        "taxaEntrega": taxa,
+        "valorTabela": valor_tabela,
+        "valorCobrado": valor_cobrado,
+        "resultado": resultado,
+        "metodo": payload.pagamento,
+        "total": conta["total"],
+        "sinal": conta["sinal"],
+        "restante": conta["restante"],
+        "pagamento": conta["descricao"],
+        "partes": conta["partes"],
+        "statusPagamento": conta["statusPagamento"],
+        "lembrete": conta["lembrete"],
+        "juros": conta["juros"],
+        "criadoEm": agora,
+        "cupomTipo": tipo_de_cupom(payload.cupomTipo),
+        "cozinhaStatus": "AGUARDANDO_PAGAMENTO" if espera_mp else "NA_COZINHA",
+        "taxaServico": conta.get("taxaServico", 0.0),
+        "tipoLancamento": tipo_lancamento,
+    }
+    if email_cliente:
+        pedido["emailCliente"] = email_cliente
+    PEDIDOS.append(pedido)
+    atualizar_cliente_do_atendimento(payload)
+    if espera_mp:
+        salvar()
+        return {"pedido": pedido_publico(request, pedido), "aguardandoPagamento": True, "caixa": CAIXA}
+    lancamento = efetivar_venda(pedido)
+    publicado = pedido_publico(request, pedido)
+    return {
+        "pedido": publicado,
+        "lancamento": lancamento,
+        "caixa": CAIXA,
+        "envio": links_envio(publicado, publicado["link"]),
+    }
 
 
 if garantir_senha_admin() or garantir_senha_dono() or garantir_conferencia_antiga():
