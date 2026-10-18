@@ -189,6 +189,33 @@
       min-height: 44px;
       cursor: pointer;
     }
+    .faixa-licenca {
+      display: none;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      padding: 10px 16px;
+      text-align: center;
+      font-weight: 600;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .faixa-licenca.visivel { display: flex; }
+    .faixa-licenca.aviso { background: #FEF3C7; color: #854d0e; }
+    .faixa-licenca.vencida, .faixa-licenca.suspensa { background: #FEE2E2; color: #9B2C2C; }
+    .faixa-licenca p { margin: 0; flex: 1 1 220px; }
+    .faixa-licenca button {
+      border: none;
+      border-radius: 10px;
+      padding: 8px 14px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      background: #fff;
+      color: inherit;
+    }
     .faixa-fantasma { display: none; background: #9A3412; }
     .faixa-fantasma.ativa { display: block; }
     .atalho-exemplo { max-width: 1100px; margin: 0 auto; padding: 10px 16px 0; }
@@ -741,6 +768,10 @@
     <p id="atualizacao-texto">Chegou atualização do PDV.</p>
     <button id="atualizacao-botao" type="button">Atualizar</button>
   </div>
+  <div class="faixa-licenca" id="faixa-licenca" hidden>
+    <p id="faixa-licenca-texto"></p>
+    <button id="faixa-licenca-admin" type="button">Abrir Licença</button>
+  </div>
   <div id="login-fundo" class="aberto">
     <form class="login-card" id="login-form">
       <div class="logo-anel">
@@ -1090,8 +1121,11 @@
             <button class="acao claro" id="cardapio-senha-cancelar" type="button">Cancelar</button>
           </div>
         </div>
-        <label>Enviar o PDF para este WhatsApp</label>
-        <input id="cardapio-telefone" inputmode="tel" maxlength="15" placeholder="(00) 00000-0000">
+        <label>Enviar o PDF — busque na agenda</label>
+        <p class="nota">Digite nome, telefone, e-mail, CPF, endereço ou qualquer dado da agenda. Ao escolher o contato, o WhatsApp é preenchido.</p>
+        <input class="busca" id="cardapio-busca" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
+        <input id="cardapio-telefone" type="hidden" value="">
+        <p class="nota" id="cardapio-contato-nota">Nenhum contato selecionado ainda.</p>
         <button class="acao" id="cardapio-enviar" type="button">Enviar PDF do cardápio no WhatsApp</button>
         <div id="lista-cardapio" style="margin-top:16px"></div>
       </div>
@@ -1131,8 +1165,8 @@
       </div>
       <div class="card">
         <h2>Agenda de clientes</h2>
-        <p class="nota">Digite o nome, o telefone ou o e-mail. Cada telefone só pode existir uma vez. Contatos de grupos do WhatsApp não entram. Enter ou um clique seleciona a cliente.</p>
-        <input class="busca" id="busca" placeholder="Nome, telefone ou e-mail">
+        <p class="nota">Digite nome, telefone, e-mail, CPF, endereço ou observação. Cada telefone só pode existir uma vez. Contatos de grupos do WhatsApp não entram. Enter ou um clique seleciona a cliente.</p>
+        <input class="busca" id="busca" placeholder="Nome, telefone, e-mail, CPF, endereço…">
         <div id="lista-clientes" class="vazio">Nenhum contato ainda.</div>
       </div>
       <div class="card">
@@ -1492,6 +1526,7 @@
           <button type="button" data-admin="aba-prolabore">Pró-labore</button>
           <button type="button" data-admin="aba-casa">Casa</button>
           <button type="button" data-admin="aba-custo">Custo da loja</button>
+          <button type="button" data-admin="aba-licenca">Licença</button>
         </div>
         <div class="aba-admin ativa" id="aba-geral">
           <div class="card">
@@ -2230,6 +2265,61 @@
             <div class="aviso" id="custo-loja-aviso"></div>
           </div>
         </div>
+        <div class="aba-admin" id="aba-licenca">
+          <div class="card">
+            <h2>Licença do PDV</h2>
+            <p class="nota">Controle criterioso: plano, valor, início e vencimento. Planos de 30, 40 ou 90 dias calculam a data sozinhos; Vitalícia não vence; Avulso usa a data que você digitar. Com licença vencida ou suspensa, o caixa não finaliza venda nova.</p>
+            <p class="nota" id="licenca-estado">Conferindo…</p>
+            <div class="linha">
+              <div>
+                <label for="licenca-plano">Plano</label>
+                <select id="licenca-plano">
+                  <option value="30">30 dias</option>
+                  <option value="40">40 dias</option>
+                  <option value="90">90 dias</option>
+                  <option value="VITALICIA">Vitalícia</option>
+                  <option value="AVULSO">Avulso (data manual)</option>
+                </select>
+              </div>
+              <div>
+                <label for="licenca-valor">Valor (R$)</label>
+                <input id="licenca-valor" type="number" min="0" step="0.01" value="0">
+              </div>
+            </div>
+            <div class="linha">
+              <div>
+                <label for="licenca-inicio">Início</label>
+                <input id="licenca-inicio" type="date">
+              </div>
+              <div>
+                <label for="licenca-vence">Vencimento</label>
+                <input id="licenca-vence" type="date">
+              </div>
+            </div>
+            <div class="linha">
+              <div>
+                <label for="licenca-aviso-dias">Avisar com quantos dias</label>
+                <input id="licenca-aviso-dias" type="number" min="0" max="90" step="1" value="7">
+              </div>
+              <div>
+                <label class="check-robo" style="margin-top:28px"><input type="checkbox" id="licenca-ativa" checked> Licença ativa</label>
+              </div>
+            </div>
+            <label for="licenca-loja">Nome da loja</label>
+            <input id="licenca-loja" maxlength="80" placeholder="Caminho dos Doces">
+            <label for="licenca-cliente">Cliente / contratante</label>
+            <input id="licenca-cliente" maxlength="80" placeholder="Quem contratou o PDV">
+            <label for="licenca-obs">Observação</label>
+            <textarea id="licenca-obs" maxlength="400" placeholder="Nota interna sobre o contrato"></textarea>
+            <div class="botoes-ficha">
+              <button class="acao" id="licenca-salvar" type="button">Guardar licença</button>
+              <button class="acao claro" id="licenca-recarregar" type="button">Recarregar</button>
+            </div>
+            <div class="aviso" id="licenca-aviso"></div>
+            <h3>Histórico recente</h3>
+            <div id="licenca-historico" class="nota">Nenhuma alteração ainda.</div>
+          </div>
+        </div>
         <div class="card">
           <h2>O que ela preenche</h2>
           <ul>
@@ -2282,6 +2372,7 @@
           <li><strong>WhatsApp.</strong> Abra o balão verde Zap. Na primeira vez, leia o QR Code com o celular da loja. Depois aperte “Salvar contatos na agenda”.</li>
           <li><strong>iFood e 99Food.</strong> Abra o balão de cada um, aperte “Só abrir para ver os valores” e entre com o login da loja. A sessão fica salva.</li>
           <li><strong>Cardápio.</strong> Confira nomes, preços e fotos dos doces.</li>
+          <li><strong>Licença.</strong> Administrativo → Licença: escolha o plano (30, 40, 90 dias, vitalícia ou avulso), o valor e o vencimento. Com a licença vencida ou suspensa, o caixa não finaliza venda nova.</li>
           <li><strong>Mercado Pago.</strong> Administrativo, aba Mercado Pago. Em Credenciais de produção, copie só o Access Token (APP_USR-, o mais longo — não a Public Key). Cole na Opção A e conecte. Luz verde = ok. Leia também o cartão “Mercado Pago no dia a dia” neste Informativo.</li>
           <li><strong>Taxas do Mercado Pago.</strong> Na mesma aba, confira as taxas de Pix, débito e crédito com o app. Aperte “Guardar as taxas”.</li>
           <li><strong>Precificação.</strong> Preencha Pró-labore e Casa. Na aba Precificação, abra o iFood e o 99Food pelos botões e copie os preços de verdade. Escolha Total ou Parcial e confira se algum doce dá prejuízo.</li>
@@ -2597,18 +2688,32 @@
       sugestoesAtuais = [];
       sugestaoIndice = 0;
     }
+    function textoAgendaCliente(cliente) {
+      return semAcento([
+        cliente.nome,
+        cliente.telefone,
+        cliente.email,
+        cliente.cpf,
+        cliente.endereco,
+        cliente.observacoes,
+        cliente.origem
+      ].filter(Boolean).join(" "));
+    }
     function sugestoesContato(texto, porTelefone, limite = 6) {
       const termo = semAcento(texto).trim();
       const nums = chaveTelefone(texto);
       const buscaNome = !porTelefone && termo.length >= 2;
       const buscaFone = nums.length >= 4;
       const buscaEmail = !porTelefone && termo.includes("@") && termo.length >= 3;
-      if (!buscaNome && !buscaFone && !buscaEmail) return [];
+      const buscaGeral = !porTelefone && termo.length >= 2;
+      if (!buscaNome && !buscaFone && !buscaEmail && !buscaGeral) return [];
       const pontuados = [];
       clientesCache.forEach((cliente) => {
         const nome = semAcento(cliente.nome);
         const email = semAcento(cliente.email || "");
+        const cpf = digitos(cliente.cpf || "");
         const fone = chaveTelefone(cliente.telefone);
+        const geral = textoAgendaCliente(cliente);
         let pontos = 0;
         if (buscaFone) {
           if (fone === nums) pontos = 200;
@@ -2625,6 +2730,11 @@
           if (email === termo) pontos = Math.max(pontos, 190);
           else if (email.startsWith(termo)) pontos = Math.max(pontos, 110);
           else if (email.includes(termo)) pontos = Math.max(pontos, 70);
+        }
+        if (buscaGeral) {
+          const numsTermo = digitos(termo);
+          if (numsTermo.length >= 4 && cpf.includes(numsTermo)) pontos = Math.max(pontos, 150);
+          else if (geral.includes(termo)) pontos = Math.max(pontos, 35);
         }
         if (pontos) pontuados.push({ cliente, pontos, nome });
       });
@@ -2677,11 +2787,22 @@
       const card = document.querySelector(`[data-cliente="${cliente.id}"]`);
       if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
     }
+    function preencherCardapioContato(cliente) {
+      if (!cliente) return;
+      document.getElementById("cardapio-busca").value = cliente.nome || "";
+      document.getElementById("cardapio-telefone").value = formatarTelefone(cliente.telefone || "");
+      const nota = document.getElementById("cardapio-contato-nota");
+      nota.textContent = `Vai enviar para ${cliente.nome} · ${formatarTelefone(cliente.telefone)}${cliente.email ? ` · ${cliente.email}` : ""}.`;
+    }
     function escolherSugestao(cliente, campo) {
       if (!cliente) return;
       fecharSugestoes();
       if (campo && ["corrida-nome", "diaria-nome", "folha-nome"].includes(campo.id)) {
         campo.value = cliente.nome;
+        return;
+      }
+      if (campo && campo.id === "cardapio-busca") {
+        preencherCardapioContato(cliente);
         return;
       }
       if (campo && (campo.id === "busca" || campo.id.startsWith("org-"))) {
@@ -3043,7 +3164,7 @@
     ["pagamento", "parcelas"].forEach((id) => {
       document.getElementById(id).onchange = ajustarPagamento;
     });
-    ["nome", "sobrenome", "telefone", "busca", "org-nome", "org-sobrenome", "org-telefone", "corrida-nome", "diaria-nome", "folha-nome"].forEach((id) => {
+    ["nome", "sobrenome", "telefone", "busca", "org-nome", "org-sobrenome", "org-telefone", "cardapio-busca", "corrida-nome", "diaria-nome", "folha-nome"].forEach((id) => {
       const campo = document.getElementById(id);
       campo.addEventListener("input", (evento) => {
         if (id === "telefone" || id === "org-telefone") evento.target.value = formatarTelefone(evento.target.value);
@@ -3130,8 +3251,8 @@
       const clientes = termoSimples.length >= 2 || chaveTelefone(termo).length >= 4
         ? sugestoesContato(termo, false, 12)
         : clientesCache.filter((cliente) => {
-          const texto = semAcento(`${cliente.nome} ${cliente.telefone} ${cliente.email || ""} ${cliente.endereco || ""}`);
-          return texto.includes(termoSimples);
+          if (!termoSimples) return true;
+          return textoAgendaCliente(cliente).includes(termoSimples);
         }).sort((a, b) => (b.novo ? 1 : 0) - (a.novo ? 1 : 0));
       const alvoClientes = document.getElementById("lista-clientes");
       if (!clientes.length) {
@@ -4054,8 +4175,9 @@
       const campo = document.querySelector("#lista-cardapio [data-campo=nome]");
       if (campo) campo.focus();
     };
-    document.getElementById("cardapio-telefone").addEventListener("input", (evento) => {
-      evento.target.value = formatarTelefone(evento.target.value);
+    document.getElementById("cardapio-busca").addEventListener("input", () => {
+      document.getElementById("cardapio-telefone").value = "";
+      document.getElementById("cardapio-contato-nota").textContent = "Nenhum contato selecionado ainda. Escolha uma sugestão da agenda.";
     });
     document.getElementById("cardapio-salvar").onclick = async () => {
       await salvarCardapioAgora();
@@ -4079,8 +4201,13 @@
       }
     });
     document.getElementById("cardapio-enviar").onclick = async () => {
-      const telefone = document.getElementById("cardapio-telefone").value || document.getElementById("telefone").value;
-      if (!digitos(telefone)) return avisoCardapio("Informe o WhatsApp que vai receber o cardápio.", false);
+      let telefone = document.getElementById("cardapio-telefone").value;
+      if (!digitos(telefone)) {
+        const achados = sugestoesContato(document.getElementById("cardapio-busca").value, false, 1);
+        if (achados[0]) preencherCardapioContato(achados[0]);
+        telefone = document.getElementById("cardapio-telefone").value || document.getElementById("telefone").value;
+      }
+      if (!digitos(telefone)) return avisoCardapio("Busque e escolha um contato da agenda (ou use o telefone do caixa).", false);
       const botao = document.getElementById("cardapio-enviar");
       botao.disabled = true;
       avisoCardapio("Enviando o PDF do cardápio no WhatsApp…", true);
@@ -6989,8 +7116,120 @@
         if (botao.dataset.admin === "aba-mercadopago") carregarMercadoPago();
         if (botao.dataset.admin === "aba-precificacao") carregarPrecificacao();
         if (botao.dataset.admin === "aba-ifood") carregarIfoodApi();
+        if (botao.dataset.admin === "aba-licenca") carregarLicenca();
       };
     });
+
+    function dataIsoBr(texto) {
+      if (!texto) return "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+      const m = String(texto).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      return m ? `${m[3]}-${m[2]}-${m[1]}` : "";
+    }
+    function dataBrIso(texto) {
+      if (!texto) return "";
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(texto)) return texto;
+      const m = String(texto).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : texto;
+    }
+    function aplicarFaixaLicenca(dados) {
+      const faixa = document.getElementById("faixa-licenca");
+      const texto = document.getElementById("faixa-licenca-texto");
+      if (!faixa || !texto) return;
+      const estado = dados.estado || "OK";
+      if (estado === "OK") {
+        faixa.hidden = true;
+        faixa.className = "faixa-licenca";
+        return;
+      }
+      faixa.hidden = false;
+      faixa.className = `faixa-licenca visivel ${estado === "AVISO" ? "aviso" : estado === "SUSPENSA" ? "suspensa" : "vencida"}`;
+      texto.textContent = dados.mensagem || "Verifique a licença do PDV.";
+    }
+    function mostrarFormLicenca(dados) {
+      document.getElementById("licenca-plano").value = dados.plano || "VITALICIA";
+      document.getElementById("licenca-valor").value = Number(dados.valor || 0);
+      document.getElementById("licenca-inicio").value = dataIsoBr(dados.inicioEm);
+      document.getElementById("licenca-vence").value = dataIsoBr(dados.venceEm);
+      document.getElementById("licenca-aviso-dias").value = Number(dados.avisoDias ?? 7);
+      document.getElementById("licenca-ativa").checked = dados.ativa !== false;
+      document.getElementById("licenca-loja").value = dados.loja || "";
+      document.getElementById("licenca-cliente").value = dados.cliente || "";
+      document.getElementById("licenca-obs").value = dados.observacao || "";
+      const dias = dados.diasRestantes;
+      document.getElementById("licenca-estado").textContent =
+        `${dados.estado || "OK"} · ${dados.planoNome || dados.plano}` +
+        (dados.venceEm ? ` · vence ${dados.venceEm}` : " · sem vencimento") +
+        (dias == null ? "" : ` · ${dias} dia(s)`) +
+        ` · valor ${dinheiro(dados.valor || 0)}`;
+      const hist = dados.historico || [];
+      document.getElementById("licenca-historico").innerHTML = hist.length
+        ? hist.slice().reverse().map((h) => `<div>${escapar(h.em)} · ${escapar(h.plano)} · ${dinheiro(h.valor || 0)} · ${escapar(h.venceEm || "")}${h.ativa === false ? " · suspensa" : ""}</div>`).join("")
+        : "Nenhuma alteração ainda.";
+      const vence = document.getElementById("licenca-vence");
+      const plano = document.getElementById("licenca-plano").value;
+      vence.disabled = plano !== "AVULSO";
+      aplicarFaixaLicenca(dados);
+    }
+    async function carregarLicenca() {
+      const aviso = document.getElementById("licenca-aviso");
+      try {
+        const resposta = await fetch("/api/licenca", { headers: { "x-admin": tokenAdmin() } });
+        const dados = await resposta.json();
+        if (!resposta.ok) throw new Error(dados.detail || "Não foi possível ler a licença.");
+        mostrarFormLicenca(dados);
+        aviso.textContent = "";
+        aviso.className = "aviso";
+      } catch (erro) {
+        aviso.textContent = erro.message;
+        aviso.className = "aviso erro";
+      }
+    }
+    async function conferirLicencaPublica() {
+      try {
+        const resposta = await fetch("/api/licenca/status");
+        const dados = await resposta.json();
+        if (resposta.ok) aplicarFaixaLicenca(dados);
+      } catch (_) {}
+    }
+    document.getElementById("licenca-plano").addEventListener("change", () => {
+      document.getElementById("licenca-vence").disabled = document.getElementById("licenca-plano").value !== "AVULSO";
+    });
+    document.getElementById("licenca-salvar").onclick = async () => {
+      const aviso = document.getElementById("licenca-aviso");
+      aviso.textContent = "Guardando…";
+      aviso.className = "aviso";
+      try {
+        const resposta = await fetch("/api/licenca", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+          body: JSON.stringify({
+            plano: document.getElementById("licenca-plano").value,
+            valor: Number(document.getElementById("licenca-valor").value || 0),
+            inicioEm: dataBrIso(document.getElementById("licenca-inicio").value),
+            venceEm: dataBrIso(document.getElementById("licenca-vence").value),
+            avisoDias: Number(document.getElementById("licenca-aviso-dias").value || 7),
+            ativa: document.getElementById("licenca-ativa").checked,
+            loja: document.getElementById("licenca-loja").value,
+            cliente: document.getElementById("licenca-cliente").value,
+            observacao: document.getElementById("licenca-obs").value
+          })
+        });
+        const dados = await resposta.json();
+        if (!resposta.ok) throw new Error(typeof dados.detail === "string" ? dados.detail : "Não foi possível guardar.");
+        mostrarFormLicenca(dados);
+        aviso.textContent = "Licença guardada.";
+        aviso.className = "aviso ok";
+      } catch (erro) {
+        aviso.textContent = erro.message;
+        aviso.className = "aviso erro";
+      }
+    };
+    document.getElementById("licenca-recarregar").onclick = () => carregarLicenca();
+    document.getElementById("faixa-licenca-admin").onclick = () => {
+      irPara("admin");
+      document.querySelector('[data-admin="aba-licenca"]')?.click();
+    };
 
     function acenderLuzMp(cor, legenda) {
       const luz = document.getElementById("mp-luz");
@@ -8253,6 +8492,7 @@
       document.getElementById("login-fundo").classList.remove("aberto");
       carregarListas();
       conferirClientesNovos();
+      conferirLicencaPublica();
       if (!localStorage.getItem("pdv-tutorial-visto")) {
         irPara("informativo");
         localStorage.setItem("pdv-tutorial-visto", "1");

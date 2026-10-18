@@ -1,0 +1,22 @@
+{
+  "include": ["main.py", "gerenciador.py", "frontend"],
+  "exclude": [
+    "**/venv",
+    "**/.venv",
+    "**/__pycache__",
+    "build",
+    "dist",
+    "core-orders",
+    "integrations-hub",
+    "finance-ledger",
+    "crm-marketing",
+    "compliance-governance",
+    "event-worker",
+    "shared",
+    "workers",
+    ".history"
+  ],
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": false,
+  "pythonVersion": "3.12"
+}

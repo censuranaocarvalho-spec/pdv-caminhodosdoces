@@ -88,9 +88,17 @@ PASTA_JURIDICA = os.path.join(RAIZ, "dados", "pessoa-juridica")
 PRAZO_RECIBO_DIAS = 365
 PERFIL_WHATSAPP = os.path.join(RAIZ, "dados", "whatsapp-perfil")
 CAMINHO_LOGO = os.path.join(FRONTEND, "logo.png")
+ARQUIVO_LICENCA = os.path.join(RAIZ, "dados", "licenca.json")
 PORTA_WHATSAPP = 9333
 JUROS_MES = 0.0199
 WHATSAPP_DONA = "5561994429261"
+PLANOS_LICENCA = {
+    "30": {"nome": "30 dias", "dias": 30},
+    "40": {"nome": "40 dias", "dias": 40},
+    "90": {"nome": "90 dias", "dias": 90},
+    "VITALICIA": {"nome": "Vitalícia", "dias": None},
+    "AVULSO": {"nome": "Avulso (data manual)", "dias": None},
+}
 
 
 def ajustar_logo(origem, destino: str = "", lado: int = 512, margem_pct: float = 0.0) -> str:
@@ -133,6 +141,126 @@ def logo_publico() -> dict:
         "url": f"/static/logo.png?v={versao}" if existe else "",
         "versao": versao,
     }
+
+
+def _parse_data_br(texto: str):
+    texto = (texto or "").strip()
+    if not texto:
+        return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(texto, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _data_br(dia) -> str:
+    if not dia:
+        return ""
+    if isinstance(dia, str):
+        return dia
+    return dia.strftime("%d/%m/%Y")
+
+
+def licenca_padrao() -> dict:
+    return {
+        "plano": "VITALICIA",
+        "planoNome": PLANOS_LICENCA["VITALICIA"]["nome"],
+        "valor": 0.0,
+        "inicioEm": _data_br(datetime.now().date()),
+        "venceEm": "",
+        "loja": "Caminho dos Doces",
+        "cliente": "",
+        "observacao": "",
+        "ativa": True,
+        "avisoDias": 7,
+        "historico": [],
+    }
+
+
+def ler_licenca() -> dict:
+    base = licenca_padrao()
+    if not os.path.isfile(ARQUIVO_LICENCA):
+        return base
+    try:
+        with open(ARQUIVO_LICENCA, encoding="utf-8") as arquivo:
+            dados = json.load(arquivo)
+    except (OSError, json.JSONDecodeError):
+        return base
+    if not isinstance(dados, dict):
+        return base
+    base.update({k: dados.get(k, base[k]) for k in base if k != "historico"})
+    hist = dados.get("historico")
+    base["historico"] = hist if isinstance(hist, list) else []
+    return base
+
+
+def gravar_licenca(dados: dict) -> None:
+    os.makedirs(os.path.dirname(ARQUIVO_LICENCA), exist_ok=True)
+    with open(ARQUIVO_LICENCA, "w", encoding="utf-8") as arquivo:
+        json.dump(dados, arquivo, ensure_ascii=False, indent=2)
+
+
+def status_licenca() -> dict:
+    dados = ler_licenca()
+    plano = str(dados.get("plano") or "VITALICIA").upper()
+    if plano not in PLANOS_LICENCA:
+        plano = "AVULSO"
+    meta = PLANOS_LICENCA[plano]
+    inicio = _parse_data_br(dados.get("inicioEm") or "") or datetime.now().date()
+    vence = _parse_data_br(dados.get("venceEm") or "")
+    if plano == "VITALICIA":
+        vence = None
+    elif meta["dias"] is not None and not vence:
+        vence = inicio + timedelta(days=int(meta["dias"]))
+    hoje = datetime.now().date()
+    dias = None if vence is None else (vence - hoje).days
+    aviso = max(0, int(dados.get("avisoDias") or 7))
+    ativa = bool(dados.get("ativa", True))
+    if not ativa:
+        estado = "SUSPENSA"
+    elif plano == "VITALICIA" or vence is None:
+        estado = "OK"
+    elif dias is not None and dias < 0:
+        estado = "VENCIDA"
+    elif dias is not None and dias <= aviso:
+        estado = "AVISO"
+    else:
+        estado = "OK"
+    valor = float(dados.get("valor") or 0)
+    return {
+        "plano": plano,
+        "planoNome": meta["nome"],
+        "valor": valor,
+        "inicioEm": _data_br(inicio),
+        "venceEm": _data_br(vence) if vence else "",
+        "loja": str(dados.get("loja") or ""),
+        "cliente": str(dados.get("cliente") or ""),
+        "observacao": str(dados.get("observacao") or ""),
+        "ativa": ativa,
+        "avisoDias": aviso,
+        "diasRestantes": dias,
+        "estado": estado,
+        "podeVender": estado in ("OK", "AVISO"),
+        "planos": [{"id": k, "nome": v["nome"], "dias": v["dias"]} for k, v in PLANOS_LICENCA.items()],
+        "historico": list(dados.get("historico") or [])[-12:],
+        "mensagem": {
+            "OK": "Licença em dia.",
+            "AVISO": f"Licença vence em {dias} dia(s) ({_data_br(vence)}).",
+            "VENCIDA": f"Licença vencida em {_data_br(vence)}. Renove no Administrativo → Licença.",
+            "SUSPENSA": "Licença suspensa. Ative de novo no Administrativo → Licença.",
+        }.get(estado, ""),
+    }
+
+
+def exigir_licenca_para_vender() -> None:
+    st = status_licenca()
+    if st["podeVender"]:
+        return
+    raise HTTPException(status_code=403, detail=st["mensagem"] or "Licença inválida. Ajuste em Administrativo → Licença.")
+
+
 REDES_LOJA = (
     ("WhatsApp", "https://wa.me/5561994429261"),
     ("Instagram", "https://www.instagram.com/caminhodosdoces/"),
@@ -162,6 +290,7 @@ async def trancar_loja(request: Request, call_next):
         or caminho == "/cardapio"
         or caminho.startswith("/cardapio/")
         or caminho == "/api/atualizacao"
+        or caminho == "/api/licenca/status"
         or caminho == "/api/mercadopago/retorno"
     )
     if livre or not caminho.startswith("/api/"):
@@ -5589,6 +5718,73 @@ def salvar_logo(payload: LogoSalvo, request: Request):
     return {"ok": True, "mensagem": "Logo guardado e ajustado para não estourar na tela nem no cupom.", **logo_publico()}
 
 
+class LicencaSalva(BaseModel):
+    plano: str = "VITALICIA"
+    valor: float = 0.0
+    inicioEm: str = ""
+    venceEm: str = ""
+    loja: str = ""
+    cliente: str = ""
+    observacao: str = ""
+    ativa: bool = True
+    avisoDias: int = 7
+
+
+@app.get("/api/licenca/status")
+def ver_licenca_status():
+    return status_licenca()
+
+
+@app.get("/api/licenca")
+def ver_licenca(request: Request):
+    exigir_admin(request)
+    return status_licenca()
+
+
+@app.post("/api/licenca")
+def salvar_licenca(payload: LicencaSalva, request: Request):
+    exigir_admin(request)
+    plano = (payload.plano or "").strip().upper()
+    if plano not in PLANOS_LICENCA:
+        raise HTTPException(status_code=400, detail="Plano inválido. Use 30, 40, 90, VITALICIA ou AVULSO.")
+    meta = PLANOS_LICENCA[plano]
+    inicio = _parse_data_br(payload.inicioEm) or datetime.now().date()
+    vence = _parse_data_br(payload.venceEm)
+    if plano == "VITALICIA":
+        vence = None
+    elif meta["dias"] is not None:
+        vence = inicio + timedelta(days=int(meta["dias"]))
+    elif not vence:
+        raise HTTPException(status_code=400, detail="No plano Avulso, informe a data de vencimento.")
+    if float(payload.valor) < 0:
+        raise HTTPException(status_code=400, detail="O valor da licença não pode ser negativo.")
+    aviso = max(0, min(90, int(payload.avisoDias)))
+    atual = ler_licenca()
+    historico = list(atual.get("historico") or [])
+    historico.append({
+        "em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "plano": plano,
+        "valor": round(float(payload.valor), 2),
+        "venceEm": _data_br(vence) if vence else "vitalícia",
+        "ativa": bool(payload.ativa),
+    })
+    dados = {
+        "plano": plano,
+        "planoNome": meta["nome"],
+        "valor": round(float(payload.valor), 2),
+        "inicioEm": _data_br(inicio),
+        "venceEm": _data_br(vence) if vence else "",
+        "loja": (payload.loja or "").strip()[:80],
+        "cliente": (payload.cliente or "").strip()[:80],
+        "observacao": (payload.observacao or "").strip()[:400],
+        "ativa": bool(payload.ativa),
+        "avisoDias": aviso,
+        "historico": historico[-40:],
+    }
+    gravar_licenca(dados)
+    return status_licenca()
+
+
 def valor_liquido_caixa_pedido(order_id: str) -> float:
     entradas = sum(
         float(lancamento.get("valor") or 0)
@@ -5794,6 +5990,7 @@ def receber_restante(order_id: str, payload: ReceberRestante, request: Request):
 
 @app.post("/api/pedidos", status_code=201)
 def criar_pedido(payload: NovoPedido, request: Request):
+    exigir_licenca_para_vender()
     if CAIXA["status"] != "ABERTO":
         raise HTTPException(status_code=400, detail="O caixa está fechado.")
     if not payload.telefone.strip():

@@ -1,0 +1,48 @@
+{
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.history": true,
+    "build": true,
+    "dist": true
+  },
+  "files.watcherExclude": {
+    "**/venv/**": true,
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "build/**": true,
+    "dist/**": true,
+    ".history/**": true,
+    "**/*.cat": true,
+    "codigo_completo_pdv.txt": true
+  },
+  "search.exclude": {
+    "**/venv": true,
+    "**/.venv": true,
+    "build": true,
+    "dist": true,
+    ".history": true,
+    "**/*.cat": true,
+    "codigo_completo_pdv.txt": true,
+    "core-orders/venv": true,
+    "Caminho dos Doces.exe": true,
+    "dados-loja-para-pc-dela.zip": true
+  },
+  "python.analysis.exclude": [
+    "**/venv",
+    "**/.venv",
+    "core-orders/**",
+    "integrations-hub/**",
+    "finance-ledger/**",
+    "crm-marketing/**",
+    "compliance-governance/**",
+    "event-worker/**",
+    "shared/**",
+    "workers/**",
+    "build/**",
+    "dist/**",
+    ".history/**"
+  ],
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.languageServer": "Pylance",
+  "python.defaultInterpreterPath": "${workspaceFolder}/core-orders/venv/bin/python"
+}

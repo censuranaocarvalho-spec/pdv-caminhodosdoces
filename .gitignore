@@ -42,8 +42,9 @@ Thumbs.db
 desktop.ini
 
 # IDE
-.vscode/
 .idea/
+.vscode/*
+!.vscode/settings.json
 
 # Pasta duplicata do projeto (clonada dentro dele)
 pdv-caminhodosdoces/
@@ -51,7 +52,10 @@ pdv-caminhodosdoces/
 # Catálogos de diagnóstico (70 MB + 36 MB)
 PROJETO_PDV.cat
 PDV_CATALOGO.cat
+CATALOGO_MESTRE.cat
 codigo_completo_pdv.txt
+Caminho dos Doces.exe
+dados-loja-para-pc-dela.zip
 
 # Ferramentas de geração de catálogo
 gerar_cat.py
