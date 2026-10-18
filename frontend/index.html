@@ -1074,8 +1074,8 @@
             <label class="check-ativo"><input type="checkbox" id="usar-mp" checked> Receber pelo Mercado Pago</label>
             <div id="bloco-mp-email" style="display:none">
               <label for="email-cliente">E-mail da cliente</label>
-              <input id="email-cliente" type="email" autocomplete="email" placeholder="nome@email.com">
-              <p class="nota">O Mercado Pago pede o e-mail para gerar o Pix. Explique à cliente: “É só para emitir a cobrança com segurança; não usamos para propaganda.” Se já estiver na agenda, vem preenchido.</p>
+              <input id="email-cliente" class="busca" type="email" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
+              <p class="nota">Busque na agenda ou digite o e-mail. O Mercado Pago pede o e-mail para o Pix. Explique: “É só para emitir a cobrança com segurança; não usamos para propaganda.”</p>
             </div>
             <p class="nota" id="nota-mp"></p>
           </div>
@@ -1148,12 +1148,12 @@
         <label>Telefone</label>
         <input id="org-telefone" inputmode="tel" maxlength="15" placeholder="(00) 00000-0000">
         <label>CPF (opcional)</label>
-        <input id="org-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00">
+        <input id="org-cpf" class="busca" inputmode="numeric" maxlength="14" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
         <label>E-mail (para o Pix do Mercado Pago)</label>
-        <input id="org-email" type="email" autocomplete="email" placeholder="nome@email.com">
-        <p class="nota">Por que pedir: o Mercado Pago exige o e-mail para gerar o Pix. Diga à cliente: “Pedimos só para emitir a cobrança com segurança. Não enviamos propaganda.” Com o e-mail na agenda, o caixa já preenche sozinho.</p>
+        <input id="org-email" class="busca" type="email" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
+        <p class="nota">Busque na agenda ou digite. O Mercado Pago exige o e-mail para o Pix. Diga: “Pedimos só para emitir a cobrança com segurança. Não enviamos propaganda.”</p>
         <label>Endereço</label>
-        <input id="org-endereco" placeholder="Rua, número, bairro">
+        <input id="org-endereco" class="busca" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
         <div class="nota" id="org-perfil">Nenhuma compra desta cliente ainda.</div>
         <label>Observações</label>
         <textarea id="org-observacoes"></textarea>
@@ -1275,7 +1275,7 @@
           <div class="linha">
             <div>
               <label>Nome do motoboy</label>
-              <input id="corrida-nome" placeholder="Nome ou telefone">
+              <input id="corrida-nome" class="busca" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
             </div>
             <div>
               <label>Valor da corrida</label>
@@ -1293,7 +1293,7 @@
           <div class="linha">
             <div>
               <label>Nome do motoboy</label>
-              <input id="diaria-nome" placeholder="Nome ou telefone">
+              <input id="diaria-nome" class="busca" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
             </div>
             <div>
               <label>Dia</label>
@@ -1319,7 +1319,7 @@
         <div class="aba-moto" id="moto-contratado">
           <p class="nota">Salário de exemplo: R$ 2.500,00. No Simples, Anexos I, II, III e V, a loja paga FGTS e separa férias, 13º e multa. INSS patronal, RAT, salário-educação e Sistema S ficam de fora dessa folha, porque o imposto da empresa vai no DAS. No Anexo IV e no Lucro Presumido ou Real, esses encargos entram.</p>
           <label>Nome do motoboy</label>
-          <input id="folha-nome" placeholder="Nome ou telefone">
+          <input id="folha-nome" class="busca" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
           <div class="linha">
             <div>
               <label>Salário bruto</label>
@@ -2308,7 +2308,9 @@
             <label for="licenca-loja">Nome da loja</label>
             <input id="licenca-loja" maxlength="80" placeholder="Caminho dos Doces">
             <label for="licenca-cliente">Cliente / contratante</label>
-            <input id="licenca-cliente" maxlength="80" placeholder="Quem contratou o PDV">
+            <p class="nota">Busca igual à agenda: nome, telefone, e-mail, CPF ou endereço. Escolha a sugestão para preencher.</p>
+            <input class="busca" id="licenca-cliente" maxlength="80" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
+            <p class="nota" id="licenca-cliente-nota">Nenhum contato selecionado — pode digitar o nome à mão se ainda não estiver na agenda.</p>
             <label for="licenca-obs">Observação</label>
             <textarea id="licenca-obs" maxlength="400" placeholder="Nota interna sobre o contrato"></textarea>
             <div class="botoes-ficha">
@@ -2688,6 +2690,13 @@
       sugestoesAtuais = [];
       sugestaoIndice = 0;
     }
+    const PLACEHOLDER_BUSCA_CLIENTE = "Nome, telefone, e-mail, CPF, endereço…";
+    const CAMPOS_AUTOCOMPLETE_CLIENTE = [
+      "nome", "sobrenome", "telefone", "email-cliente",
+      "busca", "org-nome", "org-sobrenome", "org-telefone", "org-email", "org-cpf", "org-endereco",
+      "cardapio-busca", "licenca-cliente",
+      "corrida-nome", "diaria-nome", "folha-nome"
+    ];
     function textoAgendaCliente(cliente) {
       return semAcento([
         cliente.nome,
@@ -2698,6 +2707,25 @@
         cliente.observacoes,
         cliente.origem
       ].filter(Boolean).join(" "));
+    }
+    function resumoClienteCurto(cliente) {
+      if (!cliente) return "";
+      return [
+        formatarTelefone(cliente.telefone || ""),
+        cliente.email || "",
+        cliente.cpf || ""
+      ].filter(Boolean).join(" · ");
+    }
+    function resumoClienteCompleto(cliente) {
+      if (!cliente) return "";
+      const partes = [
+        cliente.nome,
+        formatarTelefone(cliente.telefone || ""),
+        cliente.email,
+        cliente.cpf,
+        cliente.endereco
+      ].filter(Boolean);
+      return partes.join(" · ");
     }
     function sugestoesContato(texto, porTelefone, limite = 6) {
       const termo = semAcento(texto).trim();
@@ -2769,7 +2797,7 @@
       caixa.innerHTML = lista.map((cliente, indice) => `
         <button type="button" data-sugestao="${escapar(cliente.id)}" class="${indice === sugestaoIndice ? "ativa" : ""}">
           ${escapar(cliente.nome)}
-          <small>${escapar(formatarTelefone(cliente.telefone))}</small>
+          <small>${escapar(resumoClienteCurto(cliente))}</small>
         </button>
       `).join("");
       caixa.querySelectorAll("[data-sugestao]").forEach((botao) => {
@@ -2792,7 +2820,12 @@
       document.getElementById("cardapio-busca").value = cliente.nome || "";
       document.getElementById("cardapio-telefone").value = formatarTelefone(cliente.telefone || "");
       const nota = document.getElementById("cardapio-contato-nota");
-      nota.textContent = `Vai enviar para ${cliente.nome} · ${formatarTelefone(cliente.telefone)}${cliente.email ? ` · ${cliente.email}` : ""}.`;
+      nota.textContent = `Vai enviar para ${resumoClienteCompleto(cliente)}.`;
+    }
+    function preencherLicencaCliente(cliente) {
+      if (!cliente) return;
+      document.getElementById("licenca-cliente").value = cliente.nome || "";
+      document.getElementById("licenca-cliente-nota").textContent = resumoClienteCompleto(cliente);
     }
     function escolherSugestao(cliente, campo) {
       if (!cliente) return;
@@ -2801,8 +2834,20 @@
         campo.value = cliente.nome;
         return;
       }
+      if (campo && campo.id === "licenca-cliente") {
+        preencherLicencaCliente(cliente);
+        return;
+      }
       if (campo && campo.id === "cardapio-busca") {
         preencherCardapioContato(cliente);
+        return;
+      }
+      if (campo && campo.id === "email-cliente") {
+        campo.value = cliente.email || "";
+        if (!cliente.email) {
+          atenderCliente(cliente);
+          document.getElementById("email-cliente")?.focus();
+        }
         return;
       }
       if (campo && (campo.id === "busca" || campo.id.startsWith("org-"))) {
@@ -3164,11 +3209,19 @@
     ["pagamento", "parcelas"].forEach((id) => {
       document.getElementById(id).onchange = ajustarPagamento;
     });
-    ["nome", "sobrenome", "telefone", "busca", "org-nome", "org-sobrenome", "org-telefone", "cardapio-busca", "corrida-nome", "diaria-nome", "folha-nome"].forEach((id) => {
+    CAMPOS_AUTOCOMPLETE_CLIENTE.forEach((id) => {
       const campo = document.getElementById(id);
+      if (!campo) return;
+      if (campo.classList.contains("busca") || ["busca", "cardapio-busca", "licenca-cliente", "email-cliente", "corrida-nome", "diaria-nome", "folha-nome"].includes(id)) {
+        campo.placeholder = PLACEHOLDER_BUSCA_CLIENTE;
+      }
       campo.addEventListener("input", (evento) => {
         if (id === "telefone" || id === "org-telefone") evento.target.value = formatarTelefone(evento.target.value);
         if (id === "busca") agendaSelecionada = "";
+        if (id === "licenca-cliente") {
+          document.getElementById("licenca-cliente-nota").textContent =
+            "Nenhum contato selecionado — pode digitar o nome à mão se ainda não estiver na agenda.";
+        }
         sugestaoIndice = 0;
         desenharSugestoes(evento.target);
         if (id === "busca") desenharAgenda();
@@ -7155,6 +7208,13 @@
       document.getElementById("licenca-ativa").checked = dados.ativa !== false;
       document.getElementById("licenca-loja").value = dados.loja || "";
       document.getElementById("licenca-cliente").value = dados.cliente || "";
+      const notaLic = document.getElementById("licenca-cliente-nota");
+      if (dados.cliente) {
+        const achado = clientesCache.find((c) => semAcento(c.nome) === semAcento(dados.cliente));
+        notaLic.textContent = achado ? resumoClienteCompleto(achado) : `Contratante: ${dados.cliente}`;
+      } else {
+        notaLic.textContent = "Nenhum contato selecionado — pode digitar o nome à mão se ainda não estiver na agenda.";
+      }
       document.getElementById("licenca-obs").value = dados.observacao || "";
       const dias = dados.diasRestantes;
       document.getElementById("licenca-estado").textContent =
