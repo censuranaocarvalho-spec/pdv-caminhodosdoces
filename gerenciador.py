@@ -152,7 +152,7 @@ class WorkerThread(QThread):
                 self.concluido_signal.emit(False, f"Falha ao iniciar: {e}")
                 return
 
-            for _ in range(30):
+           for _ in range(120):
                 if esta_rodando():
                     break
                 time.sleep(0.5)
@@ -162,7 +162,10 @@ class WorkerThread(QThread):
         else:
             self.concluido_signal.emit(False, "O PDV nao subiu. Veja logs/gerenciador.log")
 
-    def executar_desligar(self):
+    def executar_            for _ in range(120):
+                if esta_rodando():
+                    break
+                time.sleep(0.5)desligar(self):
         self.status_signal.emit("Desligando...")
         if eh_windows():
             subprocess.run(["taskkill", "/F", "/IM", "main.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
