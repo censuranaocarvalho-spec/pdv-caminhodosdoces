@@ -170,10 +170,12 @@ def licenca_padrao() -> dict:
         "venceEm": "",
         "loja": "Caminho dos Doces",
         "cliente": "",
+        "emailCobranca": "",
         "observacao": "",
         "ativa": True,
         "avisoDias": 7,
         "historico": [],
+        "cobrancaMp": {},
     }
 
 
@@ -188,9 +190,15 @@ def ler_licenca() -> dict:
         return base
     if not isinstance(dados, dict):
         return base
-    base.update({k: dados.get(k, base[k]) for k in base if k != "historico"})
+    for chave in base:
+        if chave in ("historico", "cobrancaMp"):
+            continue
+        if chave in dados:
+            base[chave] = dados[chave]
     hist = dados.get("historico")
     base["historico"] = hist if isinstance(hist, list) else []
+    cob = dados.get("cobrancaMp")
+    base["cobrancaMp"] = cob if isinstance(cob, dict) else {}
     return base
 
 
@@ -227,6 +235,8 @@ def status_licenca() -> dict:
     else:
         estado = "OK"
     valor = float(dados.get("valor") or 0)
+    cob = dados.get("cobrancaMp") if isinstance(dados.get("cobrancaMp"), dict) else {}
+    cob_status = str(cob.get("status") or "")
     return {
         "plano": plano,
         "planoNome": meta["nome"],
@@ -235,6 +245,7 @@ def status_licenca() -> dict:
         "venceEm": _data_br(vence) if vence else "",
         "loja": str(dados.get("loja") or ""),
         "cliente": str(dados.get("cliente") or ""),
+        "emailCobranca": str(dados.get("emailCobranca") or ""),
         "observacao": str(dados.get("observacao") or ""),
         "ativa": ativa,
         "avisoDias": aviso,
@@ -243,6 +254,18 @@ def status_licenca() -> dict:
         "podeVender": estado in ("OK", "AVISO"),
         "planos": [{"id": k, "nome": v["nome"], "dias": v["dias"]} for k, v in PLANOS_LICENCA.items()],
         "historico": list(dados.get("historico") or [])[-12:],
+        "cobrancaMp": {
+            "aguardando": cob_status in ("pending", "in_process", "AGUARDANDO") and bool(cob.get("pagamentoId")),
+            "pago": cob_status == "approved",
+            "pagamentoId": str(cob.get("pagamentoId") or ""),
+            "valor": float(cob.get("valor") or 0),
+            "status": cob_status,
+            "qrCode": str(cob.get("qrCode") or ""),
+            "qrBase64": str(cob.get("qrBase64") or ""),
+            "criadoEm": str(cob.get("criadoEm") or ""),
+            "expiraEm": str(cob.get("expiraEm") or ""),
+            "pagoEm": str(cob.get("pagoEm") or ""),
+        },
         "mensagem": {
             "OK": "Licença em dia.",
             "AVISO": f"Licença vence em {dias} dia(s) ({_data_br(vence)}).",
@@ -257,6 +280,69 @@ def exigir_licenca_para_vender() -> None:
     if st["podeVender"]:
         return
     raise HTTPException(status_code=403, detail=st["mensagem"] or "Licença inválida. Ajuste em Administrativo → Licença.")
+
+
+def _email_cobranca_licenca(dados: dict) -> str:
+    email = email_valido(dados.get("emailCobranca") or "")
+    if email:
+        return email
+    email = email_valido(ADMIN.get("email") or "")
+    if email:
+        return email
+    cliente_nome = re.sub(r"\s+", " ", str(dados.get("cliente") or "").strip().casefold())
+    if cliente_nome:
+        for item in CLIENTES:
+            nome = re.sub(r"\s+", " ", str(item.get("nome") or "").strip().casefold())
+            if nome == cliente_nome:
+                email = email_valido(item.get("email") or "")
+                if email:
+                    return email
+    return ""
+
+
+def aplicar_pagamento_licenca(dados: dict, pagamento_id: str, valor_pago: float) -> dict:
+    """Ativa/renova a licença depois que o Pix do Mercado Pago confirma."""
+    hoje = datetime.now().date()
+    plano = str(dados.get("plano") or "VITALICIA").upper()
+    if plano not in PLANOS_LICENCA:
+        plano = "AVULSO"
+    meta = PLANOS_LICENCA[plano]
+    vence_atual = _parse_data_br(dados.get("venceEm") or "")
+    base = vence_atual if vence_atual and vence_atual > hoje else hoje
+    if plano == "VITALICIA":
+        novo_vence = None
+    elif meta["dias"] is not None:
+        novo_vence = base + timedelta(days=int(meta["dias"]))
+    else:
+        novo_vence = _parse_data_br(dados.get("venceEm") or "") or (hoje + timedelta(days=30))
+    dados["ativa"] = True
+    dados["inicioEm"] = _data_br(_parse_data_br(dados.get("inicioEm") or "") or hoje)
+    dados["venceEm"] = _data_br(novo_vence) if novo_vence else ""
+    dados["plano"] = plano
+    dados["planoNome"] = meta["nome"]
+    if valor_pago > 0:
+        dados["valor"] = round(float(valor_pago), 2)
+    cob = dict(dados.get("cobrancaMp") or {})
+    cob.update({
+        "status": "approved",
+        "pagamentoId": str(pagamento_id),
+        "pagoEm": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "valor": round(float(valor_pago or cob.get("valor") or 0), 2),
+    })
+    dados["cobrancaMp"] = cob
+    historico = list(dados.get("historico") or [])
+    historico.append({
+        "em": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "plano": plano,
+        "valor": round(float(valor_pago or dados.get("valor") or 0), 2),
+        "venceEm": _data_br(novo_vence) if novo_vence else "vitalícia",
+        "ativa": True,
+        "via": "Mercado Pago",
+        "pagamentoId": str(pagamento_id),
+    })
+    dados["historico"] = historico[-40:]
+    gravar_licenca(dados)
+    return status_licenca()
 
 
 REDES_LOJA = (
@@ -5723,6 +5809,7 @@ class LicencaSalva(BaseModel):
     venceEm: str = ""
     loja: str = ""
     cliente: str = ""
+    emailCobranca: str = ""
     observacao: str = ""
     ativa: bool = True
     avisoDias: int = 7
@@ -5757,6 +5844,9 @@ def salvar_licenca(payload: LicencaSalva, request: Request):
     if float(payload.valor) < 0:
         raise HTTPException(status_code=400, detail="O valor da licença não pode ser negativo.")
     aviso = max(0, min(90, int(payload.avisoDias)))
+    email_cob = email_valido(payload.emailCobranca) or (payload.emailCobranca or "").strip().lower()
+    if (payload.emailCobranca or "").strip() and not email_valido(payload.emailCobranca):
+        raise HTTPException(status_code=400, detail="O e-mail da cobrança da licença não é válido.")
     atual = ler_licenca()
     historico = list(atual.get("historico") or [])
     historico.append({
@@ -5765,6 +5855,7 @@ def salvar_licenca(payload: LicencaSalva, request: Request):
         "valor": round(float(payload.valor), 2),
         "venceEm": _data_br(vence) if vence else "vitalícia",
         "ativa": bool(payload.ativa),
+        "via": "manual",
     })
     dados = {
         "plano": plano,
@@ -5774,11 +5865,121 @@ def salvar_licenca(payload: LicencaSalva, request: Request):
         "venceEm": _data_br(vence) if vence else "",
         "loja": (payload.loja or "").strip()[:80],
         "cliente": (payload.cliente or "").strip()[:80],
+        "emailCobranca": email_cob[:120],
         "observacao": (payload.observacao or "").strip()[:400],
         "ativa": bool(payload.ativa),
         "avisoDias": aviso,
         "historico": historico[-40:],
+        "cobrancaMp": atual.get("cobrancaMp") if isinstance(atual.get("cobrancaMp"), dict) else {},
     }
+    gravar_licenca(dados)
+    return status_licenca()
+
+
+@app.post("/api/licenca/cobrar")
+def cobrar_licenca_mp(request: Request):
+    """Gera Pix no Mercado Pago pelo valor da licença. Quando pagar, o PDV renova sozinho."""
+    exigir_admin(request)
+    if not ler_mp().get("accessToken"):
+        raise HTTPException(
+            status_code=400,
+            detail="Conecte o Mercado Pago (Access Token) antes de cobrar a licença.",
+        )
+    dados = ler_licenca()
+    valor = round(float(dados.get("valor") or 0), 2)
+    if valor < 1:
+        raise HTTPException(status_code=400, detail="Informe o valor da licença (mínimo R$ 1,00) e guarde antes de cobrar.")
+    email = _email_cobranca_licenca(dados)
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Informe o e-mail da cobrança na aba Licença (o Mercado Pago exige e-mail no Pix).",
+        )
+    nome = (dados.get("cliente") or dados.get("loja") or "Licença PDV").strip() or "Licença PDV"
+    partes = nome.split()
+    referencia = f"LICENCA-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    validade = (datetime.now().astimezone() + timedelta(minutes=60)).isoformat(timespec="milliseconds")
+    token = token_mp()
+    status, corpo = chamar_mp(
+        "POST",
+        "/v1/payments",
+        token,
+        corpo={
+            "transaction_amount": valor,
+            "description": f"Licença PDV Caminho dos Doces · {dados.get('planoNome') or dados.get('plano')}",
+            "payment_method_id": "pix",
+            "external_reference": referencia,
+            "date_of_expiration": validade,
+            "payer": {
+                "email": email,
+                "first_name": partes[0],
+                "last_name": " ".join(partes[1:]) or partes[0],
+            },
+        },
+        chave_unica=uuid.uuid4().hex,
+    )
+    if status not in (200, 201) or not corpo.get("id"):
+        raise HTTPException(status_code=400, detail=f"O Mercado Pago recusou o Pix da licença: {motivo_mp(corpo)}")
+    qr = ((corpo.get("point_of_interaction") or {}).get("transaction_data") or {})
+    qr_code = qr.get("qr_code") or ""
+    qr_b64 = qr.get("qr_code_base64") or ""
+    if qr_code and not qr_b64:
+        try:
+            qr_b64 = gerar_qr_pix_base64(qr_code)
+        except HTTPException:
+            qr_b64 = ""
+    dados["emailCobranca"] = email
+    dados["cobrancaMp"] = {
+        "pagamentoId": str(corpo["id"]),
+        "referencia": referencia,
+        "valor": valor,
+        "status": corpo.get("status") or "pending",
+        "qrCode": qr_code,
+        "qrBase64": qr_b64,
+        "criadoEm": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "expiraEm": corpo.get("date_of_expiration") or validade,
+        "email": email,
+    }
+    gravar_licenca(dados)
+    return status_licenca()
+
+
+@app.post("/api/licenca/cobranca/conferir")
+def conferir_cobranca_licenca(request: Request):
+    exigir_admin(request)
+    dados = ler_licenca()
+    cob = dados.get("cobrancaMp") if isinstance(dados.get("cobrancaMp"), dict) else {}
+    pag_id = str(cob.get("pagamentoId") or "")
+    if not pag_id:
+        raise HTTPException(status_code=400, detail="Não há Pix de licença aguardando. Gere a cobrança primeiro.")
+    if cob.get("status") == "approved":
+        return status_licenca()
+    if not ler_mp().get("accessToken"):
+        raise HTTPException(status_code=400, detail="Mercado Pago desconectado.")
+    status, corpo = chamar_mp("GET", f"/v1/payments/{pag_id}", token_mp())
+    if status != 200:
+        raise HTTPException(status_code=502, detail=f"O Mercado Pago não respondeu: {motivo_mp(corpo)}")
+    st = str(corpo.get("status") or "")
+    cob["status"] = st
+    dados["cobrancaMp"] = cob
+    if st == "approved":
+        valor_pago = float(corpo.get("transaction_amount") or cob.get("valor") or dados.get("valor") or 0)
+        return aplicar_pagamento_licenca(dados, pag_id, valor_pago)
+    if st in ("cancelled", "rejected", "expired"):
+        gravar_licenca(dados)
+        raise HTTPException(
+            status_code=400,
+            detail=f"O Pix da licença ficou {st}. Gere outra cobrança.",
+        )
+    gravar_licenca(dados)
+    return status_licenca()
+
+
+@app.post("/api/licenca/cobranca/cancelar")
+def cancelar_cobranca_licenca(request: Request):
+    exigir_admin(request)
+    dados = ler_licenca()
+    dados["cobrancaMp"] = {}
     gravar_licenca(dados)
     return status_licenca()
 

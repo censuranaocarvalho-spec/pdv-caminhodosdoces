@@ -2269,6 +2269,7 @@
           <div class="card">
             <h2>Licença do PDV</h2>
             <p class="nota">Controle criterioso: plano, valor, início e vencimento. Planos de 30, 40 ou 90 dias calculam a data sozinhos; Vitalícia não vence; Avulso usa a data que você digitar. Com licença vencida ou suspensa, o caixa não finaliza venda nova.</p>
+            <p class="nota">Para o Mercado Pago saber: guarde o valor, informe o e-mail da cobrança e use <strong>Gerar Pix da licença</strong>. Quando o Pix cair, o PDV confere e renova sozinho (ou aperte Conferir pagamento).</p>
             <p class="nota" id="licenca-estado">Conferindo…</p>
             <div class="linha">
               <div>
@@ -2311,11 +2312,26 @@
             <p class="nota">Busca igual à agenda: nome, telefone, e-mail, CPF ou endereço. Escolha a sugestão para preencher.</p>
             <input class="busca" id="licenca-cliente" maxlength="80" autocomplete="off" placeholder="Nome, telefone, e-mail, CPF, endereço…">
             <p class="nota" id="licenca-cliente-nota">Nenhum contato selecionado — pode digitar o nome à mão se ainda não estiver na agenda.</p>
+            <label for="licenca-email">E-mail da cobrança (Pix Mercado Pago)</label>
+            <input id="licenca-email" type="email" autocomplete="off" placeholder="email@exemplo.com">
+            <p class="nota">O Mercado Pago exige e-mail no Pix. Pode ser o da loja ou do contratante.</p>
             <label for="licenca-obs">Observação</label>
             <textarea id="licenca-obs" maxlength="400" placeholder="Nota interna sobre o contrato"></textarea>
             <div class="botoes-ficha">
               <button class="acao" id="licenca-salvar" type="button">Guardar licença</button>
               <button class="acao claro" id="licenca-recarregar" type="button">Recarregar</button>
+            </div>
+            <h3>Cobrança no Mercado Pago</h3>
+            <div class="botoes-ficha">
+              <button class="acao" id="licenca-cobrar" type="button">Gerar Pix da licença</button>
+              <button class="acao claro" id="licenca-conferir" type="button">Conferir pagamento</button>
+              <button class="acao claro" id="licenca-cobranca-cancelar" type="button">Descartar Pix</button>
+            </div>
+            <div id="licenca-cobranca-box" hidden style="margin-top:12px;padding:12px;border:1px solid #F3E7EA;border-radius:12px;background:#FFFBFC;text-align:center">
+              <p class="nota" id="licenca-cobranca-texto"></p>
+              <img id="licenca-qr" alt="QR Pix da licença" style="max-width:220px;width:100%;height:auto;margin:8px auto;display:none">
+              <button type="button" class="mp-codigo" id="licenca-pix-copia" hidden></button>
+              <p class="nota" id="licenca-cobranca-status"></p>
             </div>
             <div class="aviso" id="licenca-aviso"></div>
             <h3>Histórico recente</h3>
@@ -2826,6 +2842,7 @@
       if (!cliente) return;
       document.getElementById("licenca-cliente").value = cliente.nome || "";
       document.getElementById("licenca-cliente-nota").textContent = resumoClienteCompleto(cliente);
+      if (cliente.email) document.getElementById("licenca-email").value = cliente.email;
     }
     function escolherSugestao(cliente, campo) {
       if (!cliente) return;
@@ -7199,6 +7216,62 @@
       faixa.className = `faixa-licenca visivel ${estado === "AVISO" ? "aviso" : estado === "SUSPENSA" ? "suspensa" : "vencida"}`;
       texto.textContent = dados.mensagem || "Verifique a licença do PDV.";
     }
+    let licencaPollTimer = null;
+    function pararPollLicenca() {
+      if (licencaPollTimer) {
+        clearInterval(licencaPollTimer);
+        licencaPollTimer = null;
+      }
+    }
+    function mostrarCobrancaLicenca(dados) {
+      const cob = dados.cobrancaMp || {};
+      const box = document.getElementById("licenca-cobranca-box");
+      const img = document.getElementById("licenca-qr");
+      const copia = document.getElementById("licenca-pix-copia");
+      const texto = document.getElementById("licenca-cobranca-texto");
+      const status = document.getElementById("licenca-cobranca-status");
+      if (!cob.pagamentoId && !cob.aguardando && !cob.pago) {
+        box.hidden = true;
+        pararPollLicenca();
+        return;
+      }
+      box.hidden = false;
+      if (cob.pago) {
+        texto.textContent = `Licença paga no Mercado Pago${cob.pagoEm ? ` em ${cob.pagoEm}` : ""}.`;
+        status.textContent = "Pagamento confirmado — licença renovada.";
+        img.style.display = "none";
+        copia.hidden = true;
+        pararPollLicenca();
+        return;
+      }
+      texto.textContent = `Pix da licença · ${dinheiro(cob.valor || dados.valor || 0)}${cob.criadoEm ? ` · gerado ${cob.criadoEm}` : ""}`;
+      status.textContent = cob.aguardando
+        ? "Aguardando o pagamento no Mercado Pago… (o PDV confere sozinho)"
+        : `Status: ${cob.status || "pendente"}`;
+      if (cob.qrBase64) {
+        img.src = cob.qrBase64.startsWith("data:") ? cob.qrBase64 : `data:image/png;base64,${cob.qrBase64}`;
+        img.style.display = "block";
+      } else {
+        img.style.display = "none";
+      }
+      if (cob.qrCode) {
+        copia.hidden = false;
+        copia.textContent = cob.qrCode;
+        copia.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(cob.qrCode);
+            status.textContent = "Chave Pix copiada.";
+          } catch (_) {
+            status.textContent = "Selecione a chave e copie manualmente.";
+          }
+        };
+      } else {
+        copia.hidden = true;
+      }
+      if (cob.aguardando && !licencaPollTimer) {
+        licencaPollTimer = setInterval(() => conferirCobrancaLicenca(true), 5000);
+      }
+    }
     function mostrarFormLicenca(dados) {
       document.getElementById("licenca-plano").value = dados.plano || "VITALICIA";
       document.getElementById("licenca-valor").value = Number(dados.valor || 0);
@@ -7208,10 +7281,14 @@
       document.getElementById("licenca-ativa").checked = dados.ativa !== false;
       document.getElementById("licenca-loja").value = dados.loja || "";
       document.getElementById("licenca-cliente").value = dados.cliente || "";
+      document.getElementById("licenca-email").value = dados.emailCobranca || "";
       const notaLic = document.getElementById("licenca-cliente-nota");
       if (dados.cliente) {
         const achado = clientesCache.find((c) => semAcento(c.nome) === semAcento(dados.cliente));
         notaLic.textContent = achado ? resumoClienteCompleto(achado) : `Contratante: ${dados.cliente}`;
+        if (achado && achado.email && !document.getElementById("licenca-email").value) {
+          document.getElementById("licenca-email").value = achado.email;
+        }
       } else {
         notaLic.textContent = "Nenhum contato selecionado — pode digitar o nome à mão se ainda não estiver na agenda.";
       }
@@ -7224,11 +7301,12 @@
         ` · valor ${dinheiro(dados.valor || 0)}`;
       const hist = dados.historico || [];
       document.getElementById("licenca-historico").innerHTML = hist.length
-        ? hist.slice().reverse().map((h) => `<div>${escapar(h.em)} · ${escapar(h.plano)} · ${dinheiro(h.valor || 0)} · ${escapar(h.venceEm || "")}${h.ativa === false ? " · suspensa" : ""}</div>`).join("")
+        ? hist.slice().reverse().map((h) => `<div>${escapar(h.em)} · ${escapar(h.plano)} · ${dinheiro(h.valor || 0)} · ${escapar(h.venceEm || "")}${h.via ? ` · ${escapar(h.via)}` : ""}${h.ativa === false ? " · suspensa" : ""}</div>`).join("")
         : "Nenhuma alteração ainda.";
       const vence = document.getElementById("licenca-vence");
       const plano = document.getElementById("licenca-plano").value;
       vence.disabled = plano !== "AVULSO";
+      mostrarCobrancaLicenca(dados);
       aplicarFaixaLicenca(dados);
     }
     async function carregarLicenca() {
@@ -7272,6 +7350,7 @@
             ativa: document.getElementById("licenca-ativa").checked,
             loja: document.getElementById("licenca-loja").value,
             cliente: document.getElementById("licenca-cliente").value,
+            emailCobranca: document.getElementById("licenca-email").value,
             observacao: document.getElementById("licenca-obs").value
           })
         });
@@ -7286,6 +7365,93 @@
       }
     };
     document.getElementById("licenca-recarregar").onclick = () => carregarLicenca();
+    async function guardarLicencaAntesDeCobrar() {
+      const resposta = await fetch("/api/licenca", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+        body: JSON.stringify({
+          plano: document.getElementById("licenca-plano").value,
+          valor: Number(document.getElementById("licenca-valor").value || 0),
+          inicioEm: dataBrIso(document.getElementById("licenca-inicio").value),
+          venceEm: dataBrIso(document.getElementById("licenca-vence").value),
+          avisoDias: Number(document.getElementById("licenca-aviso-dias").value || 7),
+          ativa: document.getElementById("licenca-ativa").checked,
+          loja: document.getElementById("licenca-loja").value,
+          cliente: document.getElementById("licenca-cliente").value,
+          emailCobranca: document.getElementById("licenca-email").value,
+          observacao: document.getElementById("licenca-obs").value
+        })
+      });
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(typeof dados.detail === "string" ? dados.detail : "Guarde a licença antes de cobrar.");
+      return dados;
+    }
+    document.getElementById("licenca-cobrar").onclick = async () => {
+      const aviso = document.getElementById("licenca-aviso");
+      aviso.textContent = "Gerando Pix no Mercado Pago…";
+      aviso.className = "aviso";
+      try {
+        await guardarLicencaAntesDeCobrar();
+        const resposta = await fetch("/api/licenca/cobrar", {
+          method: "POST",
+          headers: { "x-admin": tokenAdmin() }
+        });
+        const dados = await resposta.json();
+        if (!resposta.ok) throw new Error(typeof dados.detail === "string" ? dados.detail : "Não gerou o Pix.");
+        mostrarFormLicenca(dados);
+        aviso.textContent = "Pix gerado. Pague e o PDV renova a licença quando o Mercado Pago confirmar.";
+        aviso.className = "aviso ok";
+      } catch (erro) {
+        aviso.textContent = erro.message;
+        aviso.className = "aviso erro";
+      }
+    };
+    async function conferirCobrancaLicenca(silencioso) {
+      const aviso = document.getElementById("licenca-aviso");
+      try {
+        const resposta = await fetch("/api/licenca/cobranca/conferir", {
+          method: "POST",
+          headers: { "x-admin": tokenAdmin() }
+        });
+        const dados = await resposta.json();
+        if (!resposta.ok) {
+          if (!silencioso) throw new Error(typeof dados.detail === "string" ? dados.detail : "Não conferiu.");
+          return;
+        }
+        mostrarFormLicenca(dados);
+        if (dados.cobrancaMp && dados.cobrancaMp.pago) {
+          aviso.textContent = "Pagamento confirmado no Mercado Pago. Licença renovada.";
+          aviso.className = "aviso ok";
+        } else if (!silencioso) {
+          aviso.textContent = "Ainda aguardando o pagamento no Mercado Pago.";
+          aviso.className = "aviso";
+        }
+      } catch (erro) {
+        if (!silencioso) {
+          aviso.textContent = erro.message;
+          aviso.className = "aviso erro";
+        }
+      }
+    }
+    document.getElementById("licenca-conferir").onclick = () => conferirCobrancaLicenca(false);
+    document.getElementById("licenca-cobranca-cancelar").onclick = async () => {
+      pararPollLicenca();
+      const aviso = document.getElementById("licenca-aviso");
+      try {
+        const resposta = await fetch("/api/licenca/cobranca/cancelar", {
+          method: "POST",
+          headers: { "x-admin": tokenAdmin() }
+        });
+        const dados = await resposta.json();
+        if (!resposta.ok) throw new Error(typeof dados.detail === "string" ? dados.detail : "Não descartou.");
+        mostrarFormLicenca(dados);
+        aviso.textContent = "Pix descartado no PDV (o boleto no Mercado Pago pode vencer sozinho).";
+        aviso.className = "aviso ok";
+      } catch (erro) {
+        aviso.textContent = erro.message;
+        aviso.className = "aviso erro";
+      }
+    };
     document.getElementById("faixa-licenca-admin").onclick = () => {
       irPara("admin");
       document.querySelector('[data-admin="aba-licenca"]')?.click();
