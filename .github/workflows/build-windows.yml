@@ -21,10 +21,7 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install fastapi "uvicorn[standard]" pydantic python-multipart
-          pip install websocket-client Pillow qrcode requests httpx jinja2
-          pip install PyQt6
+          pip install -r requirements.txt
 
       - name: Build gerenciador.exe
         run: pyinstaller gerenciador.spec --clean --noconfirm

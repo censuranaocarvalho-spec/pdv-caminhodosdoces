@@ -1,0 +1,12 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.10
+python-multipart
+websocket-client
+Pillow
+qrcode[pil]
+requests
+httpx
+jinja2
+PyQt6
+pyinstaller

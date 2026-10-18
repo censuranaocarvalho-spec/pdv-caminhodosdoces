@@ -10,7 +10,6 @@ __pycache__/
 .venv/
 venv/
 */venv/
-core-orders/venv/
 
 # Python
 __pycache__/
@@ -20,9 +19,11 @@ __pycache__/
 .mypy_cache/
 
 # Dados locais / logs
-logs/
+logs/*
+!logs/.gitkeep
 dados/
 *.log
+*.pid
 
 # Build
 build/

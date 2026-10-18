@@ -60,8 +60,8 @@ def comando_do_pdv():
         main_exe = achar_main_exe()
         if main_exe is not None:
             return [str(main_exe)], str(main_exe.parent)
-    py_win = RAIZ / "core-orders" / "venv" / "Scripts" / "python.exe"
-    py_nix = RAIZ / "core-orders" / "venv" / "bin" / "python"
+    py_win = RAIZ / ".venv" / "Scripts" / "python.exe"
+    py_nix = RAIZ / ".venv" / "bin" / "python"
     main_py = RAIZ / "main.py"
     if py_win.exists() and main_py.exists():
         return [str(py_win), str(main_py)], str(RAIZ)
@@ -115,7 +115,7 @@ def atualizar_se_necessario(status_cb) -> bool:
         sub = list(pasta_tmp.iterdir())[0]
 
         protegidas = {
-            ".venv", "core-orders", "logs", "dados", ".git",
+            ".venv", "logs", "dados", ".git",
             "main.exe", "gerenciador.exe", "main", "_internal", "frontend",
         }
         status_cb("Aplicando atualizacao...")

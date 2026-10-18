@@ -7,11 +7,11 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if not exist "core-orders\venv\Scripts\python.exe" (
-  python -m venv core-orders\venv
+if not exist ".venv\Scripts\python.exe" (
+  python -m venv .venv
 )
-core-orders\venv\Scripts\python.exe -m pip install --upgrade pip
-core-orders\venv\Scripts\python.exe -m pip install "fastapi>=0.115" "uvicorn>=0.30" "pydantic>=2.10" websocket-client
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -r requirements.txt
 echo.
 echo Pronto. Agora de dois cliques em iniciar.bat
 pause

@@ -1,9 +1,7 @@
 """Painel do PDV Caminho dos Doces.
 
-Igual ao outro projeto: rode e abra no navegador para ir vendo.
-
-    .venv do core-orders:
-    core-orders/venv/bin/python main.py
+    ./.venv/bin/python main.py
+    # Windows: instalador\\iniciar.bat
 
 Painel: http://127.0.0.1:8090
 """

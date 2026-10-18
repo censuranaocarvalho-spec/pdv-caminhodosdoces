@@ -1,5 +1,3 @@
-# Não indexar lixo / venvs / dumps (era a fonte dos "1kk problemas")
-**/venv/**
 **/.venv/**
 **/__pycache__/**
 build/**
@@ -7,18 +5,5 @@ dist/**
 .history/**
 **/*.cat
 codigo_completo_pdv.txt
-PROJETO_PDV.cat
-PDV_CATALOGO.cat
-CATALOGO_MESTRE.cat
-Caminho dos Doces.exe
-dados-loja-para-pc-dela.zip
-core-orders/**
-integrations-hub/**
-finance-ledger/**
-crm-marketing/**
-compliance-governance/**
-event-worker/**
-shared/**
-workers/**
 dados/**
 logs/**
