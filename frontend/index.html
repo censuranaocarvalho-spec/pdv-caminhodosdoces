@@ -216,6 +216,40 @@
       background: #fff;
       color: inherit;
     }
+    .info-temas {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 16px;
+    }
+    .info-temas button {
+      border: 1px solid #F0BCCF;
+      background: #fff;
+      color: #7C4A3A;
+      border-radius: 999px;
+      padding: 8px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .info-temas button.ativa {
+      background: #7C4A3A;
+      color: #fff;
+      border-color: #7C4A3A;
+    }
+    .info-card[hidden] { display: none !important; }
+    #dono-fundo {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(124, 74, 58, 0.35);
+      z-index: 60;
+      padding: 24px;
+      align-items: flex-start;
+      justify-content: center;
+    }
+    #dono-fundo.aberto { display: flex; }
+    #dono-fundo .card { max-width: 420px; width: 100%; margin: 40px 0; }
     .faixa-fantasma { display: none; background: #9A3412; }
     .faixa-fantasma.ativa { display: block; }
     .atalho-exemplo { max-width: 1100px; margin: 0 auto; padding: 10px 16px 0; }
@@ -771,6 +805,19 @@
   <div class="faixa-licenca" id="faixa-licenca" hidden>
     <p id="faixa-licenca-texto"></p>
     <button id="faixa-licenca-admin" type="button">Abrir Licença</button>
+  </div>
+  <div id="dono-fundo">
+    <div class="card">
+      <h2>Senha do Dono</h2>
+      <p class="nota">Só você (dono do PDV). A senha do Administrativo da loja é outra — a da operação no dia a dia.</p>
+      <label>Senha do Dono</label>
+      <input id="dono-senha" type="password" autocomplete="current-password" placeholder="Senha inicial 000000">
+      <div class="botoes-ficha">
+        <button class="acao" id="dono-entrar-ok" type="button">Desbloquear</button>
+        <button class="acao claro" id="dono-entrar-cancelar" type="button">Cancelar</button>
+      </div>
+      <div class="aviso" id="dono-entrar-aviso"></div>
+    </div>
   </div>
   <div id="login-fundo" class="aberto">
     <form class="login-card" id="login-form">
@@ -1526,7 +1573,16 @@
           <button type="button" data-admin="aba-prolabore">Pró-labore</button>
           <button type="button" data-admin="aba-casa">Casa</button>
           <button type="button" data-admin="aba-custo">Custo da loja</button>
-          <button type="button" data-admin="aba-licenca">Licença</button>
+          <button type="button" data-admin="aba-licenca" data-dono="1">Licença (Dono)</button>
+        </div>
+        <div class="card" id="dono-barra" style="margin-bottom:12px">
+          <p class="nota" id="dono-barra-texto">Área do Dono trancada. Licença e chaves do Mercado Pago só abrem com a senha do Dono (não é a senha do Administrativo da loja).</p>
+          <div class="botoes-ficha">
+            <button class="acao" id="dono-desbloquear" type="button">Desbloquear área do Dono</button>
+            <button class="acao claro" id="dono-bloquear" type="button" hidden>Trancar de novo</button>
+          </div>
+          <div id="dono-resumo" class="nota" hidden style="margin-top:8px"></div>
+          <div class="aviso" id="dono-aviso"></div>
         </div>
         <div class="aba-admin ativa" id="aba-geral">
           <div class="card">
@@ -2356,13 +2412,22 @@
           <p class="nota">No iFood, Básico sugere comissão de 12% e mensalidade de R$ 110. Entrega sugere 23% e R$ 150. Pagamento pelo aplicativo soma 3,2%. Repasse semanal sugere 1,59%, ou 1,49% na Conta Digital. No 99Food, entrega da 99 sugere comissão de 8,9% e entrega da loja sugere 10,9%. Pagamento no aplicativo soma 3,2%. Mensalidade começa em R$ 0. Saque semanal ou diário sugere 1,59%. O PDV não entra no iFood, no 99Food nem no Nubank.</p>
         </div>
         <div class="card">
-          <h2>Trocar a senha</h2>
+          <h2>Trocar a senha do Administrativo</h2>
+          <p class="nota">Senha da operação da loja (esposa / dia a dia). Não é a senha do Dono.</p>
           <label>Senha atual</label>
           <input id="senha-atual" type="password" autocomplete="current-password">
           <label>Senha nova</label>
           <input id="senha-nova" type="password" autocomplete="new-password">
-          <button class="acao claro" id="senha-trocar" type="button">Trocar senha</button>
+          <button class="acao claro" id="senha-trocar" type="button">Trocar senha do Administrativo</button>
           <div class="aviso" id="senha-aviso"></div>
+          <h3>Trocar a senha do Dono</h3>
+          <p class="nota">Só depois de desbloquear a área do Dono. Inicial: 000000.</p>
+          <label>Senha atual do Dono</label>
+          <input id="dono-senha-atual" type="password" autocomplete="current-password">
+          <label>Senha nova do Dono</label>
+          <input id="dono-senha-nova" type="password" autocomplete="new-password">
+          <button class="acao claro" id="dono-senha-trocar" type="button">Trocar senha do Dono</button>
+          <div class="aviso" id="dono-senha-aviso"></div>
         </div>
         <div class="card">
           <h2>Logo da loja</h2>
@@ -2381,23 +2446,58 @@
       </div>
     </section>
     <section class="painel" id="informativo">
-      <div class="card" id="info-primeiro-acesso">
+      <div class="card">
+        <h2>Informativo por tema</h2>
+        <p class="nota">Escolha o tema. Assim fica fácil achar o que é do Dono, o que é da loja e o que a cliente vê.</p>
+        <div class="info-temas" id="info-temas">
+          <button type="button" class="ativa" data-info-tema="TODOS">Tudo</button>
+          <button type="button" data-info-tema="ACESSOS">Quem vê o quê</button>
+          <button type="button" data-info-tema="ASSINATURA">Assinatura do PDV</button>
+          <button type="button" data-info-tema="INICIO">Primeiro acesso</button>
+          <button type="button" data-info-tema="MP">Mercado Pago</button>
+          <button type="button" data-info-tema="IFOOD">iFood / 99</button>
+          <button type="button" data-info-tema="DIA">Dia a dia</button>
+          <button type="button" data-info-tema="REGRAS">Regras</button>
+        </div>
+      </div>
+      <div class="card info-card" id="info-acessos" data-info="ACESSOS">
+        <h2>Quem vê o quê (segurança)</h2>
+        <p class="nota">Três papéis claros. Cada PDV fica no computador da loja; os segredos não sobem sozinhos para a nuvem.</p>
+        <ul>
+          <li><strong>Dono (você).</strong> Senha do Dono (inicial 000000 — troque). Só o Dono: Licença, gerar Pix da licença, colar Access Token / Client Secret do Mercado Pago, e o resumo sensível (estado da licença, se o MP está conectado, finais da chave). Botão “Desbloquear área do Dono” no Administrativo.</li>
+          <li><strong>Operação da loja (esposa / atendente).</strong> Senha da loja (login) + senha do Administrativo. Usa caixa, agenda, cardápio, cozinha, financeiro do dia, iFood/99 valores, banco, casa, precificação. Vê se o Mercado Pago está verde, mas <em>não</em> cola nem troca a chave.</li>
+          <li><strong>Cliente final.</strong> Só o que chega no WhatsApp/cupom/link de pagamento. Não entra no Administrativo nem na Licença.</li>
+          <li><strong>Limite.</strong> Dados sensíveis (token, licença, e-mail de cobrança da assinatura) ficam em <code>dados/</code> neste PC. Em outro PDV (outro computador), o Dono desbloqueia lá de novo — cada instalação tem o próprio cofre.</li>
+        </ul>
+      </div>
+      <div class="card info-card" id="info-assinatura" data-info="ASSINATURA">
+        <h2>Assinatura do PDV (Mercado Pago)</h2>
+        <p class="nota">Plano mensal da Caminho dos Doces no Mercado Pago: 7 dias de teste e R$ 100/mês, renovação todo dia 5. Cancele quando quiser.</p>
+        <p><a class="acao" href="https://mpago.la/16XdfVT" target="_blank" rel="noopener">Abrir assinatura no Mercado Pago</a></p>
+        <p class="nota">Link: <a href="https://mpago.la/16XdfVT" target="_blank" rel="noopener">https://mpago.la/16XdfVT</a></p>
+        <ol class="tutorial-passos">
+          <li>O link é da assinatura do <strong>software</strong> (Dono). Não é a cobrança da cliente no caixa.</li>
+          <li>No PDV, a aba <strong>Licença (Dono)</strong> controla se esta instalação pode vender; o Pix da licença e este link de assinatura são as formas de o Mercado Pago registrar o pagamento do plano.</li>
+          <li>Só o Dono gera/confere cobrança de licença. A operação da loja não precisa desse link no dia a dia.</li>
+        </ol>
+      </div>
+      <div class="card info-card" id="info-primeiro-acesso" data-info="INICIO">
         <h2>Tutorial do primeiro acesso</h2>
         <p class="nota">Faça uma vez, na ordem. Depois o PDV lembra de tudo.</p>
         <ol class="tutorial-passos">
           <li><strong>Entrar.</strong> Digite o e-mail e a senha da loja. Marque “Lembrar” para não digitar todo dia.</li>
-          <li><strong>Administrativo.</strong> Entre com a senha do Administrativo e troque a senha padrão por uma só sua.</li>
+          <li><strong>Administrativo.</strong> Entre com a senha do Administrativo (operação) e troque a senha padrão.</li>
+          <li><strong>Dono.</strong> Desbloqueie a área do Dono (senha própria) e troque a 000000. Só então configure Licença e a chave do Mercado Pago.</li>
+          <li><strong>Assinatura.</strong> Se for o plano mensal, use o tema Assinatura do PDV neste Informativo.</li>
           <li><strong>WhatsApp.</strong> Abra o balão verde Zap. Na primeira vez, leia o QR Code com o celular da loja. Depois aperte “Salvar contatos na agenda”.</li>
           <li><strong>iFood e 99Food.</strong> Abra o balão de cada um, aperte “Só abrir para ver os valores” e entre com o login da loja. A sessão fica salva.</li>
           <li><strong>Cardápio.</strong> Confira nomes, preços e fotos dos doces.</li>
-          <li><strong>Licença.</strong> Administrativo → Licença: escolha o plano (30, 40, 90 dias, vitalícia ou avulso), o valor e o vencimento. Com a licença vencida ou suspensa, o caixa não finaliza venda nova.</li>
-          <li><strong>Mercado Pago.</strong> Administrativo, aba Mercado Pago. Em Credenciais de produção, copie só o Access Token (APP_USR-, o mais longo — não a Public Key). Cole na Opção A e conecte. Luz verde = ok. Leia também o cartão “Mercado Pago no dia a dia” neste Informativo.</li>
-          <li><strong>Taxas do Mercado Pago.</strong> Na mesma aba, confira as taxas de Pix, débito e crédito com o app. Aperte “Guardar as taxas”.</li>
-          <li><strong>Precificação.</strong> Preencha Pró-labore e Casa. Na aba Precificação, abra o iFood e o 99Food pelos botões e copie os preços de verdade. Escolha Total ou Parcial e confira se algum doce dá prejuízo.</li>
-          <li><strong>Venda de teste.</strong> Faça a venda de teste do cartão abaixo antes de atender a primeira cliente.</li>
+          <li><strong>Taxas do Mercado Pago.</strong> Na aba Mercado Pago (operação pode ver taxas; só o Dono cola a chave), confira Pix/débito/crédito e guarde.</li>
+          <li><strong>Precificação.</strong> Preencha Pró-labore e Casa. Na aba Precificação, confira se algum doce dá prejuízo.</li>
+          <li><strong>Venda de teste.</strong> Faça a venda de teste do cartão de Mercado Pago antes de atender a primeira cliente.</li>
         </ol>
       </div>
-      <div class="card" id="info-venda-teste">
+      <div class="card info-card" id="info-venda-teste" data-info="MP">
         <h2>Tutorial da venda de teste no Mercado Pago</h2>
         <p class="nota">Com a chave TEST-, o QR e o link aparecem, mas nenhum banco paga: serve só para ver as telas. Para a venda de verdade, conecte a chave APP_USR-. Use um doce barato.</p>
         <ol class="tutorial-passos">
@@ -2410,7 +2510,7 @@
           <li><strong>Desfazer.</strong> No app do Mercado Pago, devolva o dinheiro. No PDV: Financeiro → Cancelar venda, motivo “venda de teste”.</li>
         </ol>
       </div>
-      <div class="card" id="info-mercado-pago-dia">
+      <div class="card info-card" id="info-mercado-pago-dia" data-info="MP">
         <h2>Mercado Pago no dia a dia</h2>
         <p class="nota">Isto é o que mais importa depois que a chave já está conectada.</p>
         <ol class="tutorial-passos">
@@ -2425,7 +2525,7 @@
           <li><strong>Luz do MP.</strong> Verde = conectado. Vermelho = chave errada. Amarelo = o PDV enviou e o Mercado Pago não confirmou.</li>
         </ol>
       </div>
-      <div class="card" id="info-ifood-api">
+      <div class="card info-card" id="info-ifood-api" data-info="IFOOD">
         <h2>Tutorial da API do iFood</h2>
         <p class="nota">A API do iFood é de graça, mas o iFood libera só para aplicativo cadastrado no CNPJ da loja e aprovado por eles. Peça a liberação em chamados separados: Financeiro, Pedidos e Catálogo. Enquanto não liberar, digite o valor e abra o app. O 99Food continua digitado.</p>
         <ol class="tutorial-passos">
@@ -2440,7 +2540,7 @@
           <li><strong>Gaveta.</strong> Pedido do iFood não entra na gaveta. O dinheiro entra no fechamento do iFood.</li>
         </ol>
       </div>
-      <div class="card" id="info-dia">
+      <div class="card info-card" id="info-dia" data-info="DIA">
         <h2>O dia da loja</h2>
         <p class="nota">Isto é lembrete. Nada entra no iFood, no 99Food nem no banco sozinho: ela olha e confirma.</p>
         <ol class="tutorial-passos">
@@ -2451,7 +2551,7 @@
           <li><strong>Para fechar.</strong> Com os passos prontos, o botão fica verde: Conferir e fechar. O caixa encerra.</li>
         </ol>
       </div>
-      <div class="card" id="info-fiscal">
+      <div class="card info-card" id="info-fiscal" data-info="DIA">
         <h2>Tutorial do cupom fiscal</h2>
         <p class="nota">O cupom não fiscal já sai. O fiscal fica pronto, com o botão desligado, até a loja precisar dele. Nada sai como nota da SEFAZ enquanto o botão estiver desligado.</p>
         <ol class="tutorial-passos">
@@ -2461,7 +2561,7 @@
           <li><strong>A impressora.</strong> A procura olha o computador onde o PDV está aberto.</li>
         </ol>
       </div>
-      <div class="card" id="info-pagamento">
+      <div class="card info-card" id="info-pagamento" data-info="REGRAS">
         <h2>Regras do pagamento</h2>
         <ul>
           <li>PIX ou dinheiro com sinal: 50% agora e 50% na entrega.</li>
@@ -2477,7 +2577,7 @@
           <li>Pix vence em 30 minutos; link de cartão em 24 horas. Venceu: Gerar de novo. Erro sem pagamento: Financeiro → abrir cobrança de novo ou receber na loja. Desistiu: cancelar no Financeiro e, se já pagou, devolver no app do Mercado Pago — o PDV registra o estorno sozinho quando o Mercado Pago confirmar.</li>
         </ul>
       </div>
-      <div class="card" id="info-clientes-novas">
+      <div class="card info-card" id="info-clientes-novas" data-info="REGRAS">
         <h2>Regras das clientes novas</h2>
         <ul>
           <li>Toda vez que o PDV abre e a loja entra, ele confere sozinho a agenda e os contatos do WhatsApp da loja.</li>
@@ -2490,7 +2590,7 @@
           <li>O botão "Salvar contatos na agenda" do balão do WhatsApp continua funcionando para conferir na hora que quiser.</li>
         </ul>
       </div>
-      <div class="card" id="info-precificacao">
+      <div class="card info-card" id="info-precificacao" data-info="REGRAS">
         <h2>Regras da precificação</h2>
         <ul>
           <li>Onde fica: Administrativo, aba Precificação. Mostra doce por doce se a loja, o iFood ou o 99Food estão dando lucro, margem baixa ou prejuízo.</li>
@@ -2510,7 +2610,7 @@
           <li>Trocar o preço: o da loja muda na aba Cardápio; o do iFood e o do 99Food, no painel de cada um.</li>
         </ul>
       </div>
-      <div class="card" id="info-entrega">
+      <div class="card info-card" id="info-entrega" data-info="REGRAS">
         <h2>Regras da entrega</h2>
         <ul>
           <li>Retirada na loja: sem taxa.</li>
@@ -2519,7 +2619,7 @@
           <li>Quando o produto fica pronto, o aviso pede para ela ficar atenta. Motoboy e entrega particular dizem um tempo pelo CEP e pela taxa. Uber ou 99 pedem para a loja entrar em contato.</li>
         </ul>
       </div>
-      <div class="card" id="info-almoxarifado">
+      <div class="card info-card" id="info-almoxarifado" data-info="REGRAS">
         <h2>Regras do almoxarifado</h2>
         <ul>
           <li>Categorias: Secos, Frio (geladeira/freezer), Aromatizantes e corantes, Embalagens.</li>
@@ -2529,7 +2629,7 @@
           <li>Selos vermelho/laranja na lista: vencido ou vence em até 7 dias. Use o filtro “Vencendo”.</li>
         </ul>
       </div>
-      <div class="card" id="info-cozinha">
+      <div class="card info-card" id="info-cozinha" data-info="REGRAS">
         <h2>Regras da cozinha</h2>
         <ul>
           <li>A venda fechada no caixa chega na cozinha com cliente, endereço, data, hora, pagamento e o momento do pedido.</li>
@@ -2539,7 +2639,7 @@
           <li>Cancelar o aviso pede a senha da loja e a senha administrativa. As duas podem ser a mesma, até ela trocar a senha.</li>
         </ul>
       </div>
-      <div class="card" id="info-canais">
+      <div class="card info-card" id="info-canais" data-info="IFOOD">
         <h2>Regras do iFood e do 99Food</h2>
         <p class="nota">Os números começam nestes valores. Ela troca quando o painel do aplicativo mostrar outro. O PDV não entra no iFood, no 99Food nem no Nubank.</p>
         <ul>
@@ -2550,7 +2650,7 @@
           <li>99Food com a 99 entregando: comissão 8,9%. Com a loja entregando: 10,9%. Pagamento no aplicativo soma 3,2%. Mensalidade começa em R$ 0. Saque semanal ou diário sugere 1,59%.</li>
         </ul>
       </div>
-      <div class="card" id="info-leis">
+      <div class="card info-card" id="info-leis" data-info="REGRAS">
         <h2>Leis e regras da folha</h2>
         <p class="nota">A conta oficial continua com o contador. O PDV separa o custo para ela enxergar o mês.</p>
         <ul>
@@ -6198,6 +6298,83 @@
     function tokenAdmin() {
       return sessionStorage.getItem("adminToken") || "";
     }
+    function tokenDono() {
+      return sessionStorage.getItem("donoToken") || "";
+    }
+    function headersAdmin(extra) {
+      const h = { "x-admin": tokenAdmin(), ...(extra || {}) };
+      if (tokenDono()) h["x-dono"] = tokenDono();
+      return h;
+    }
+    function donoLiberado() {
+      return !!tokenDono();
+    }
+    function atualizarBarraDono(resumo) {
+      const texto = document.getElementById("dono-barra-texto");
+      const btnIn = document.getElementById("dono-desbloquear");
+      const btnOut = document.getElementById("dono-bloquear");
+      const caixa = document.getElementById("dono-resumo");
+      const abaLic = document.querySelector('[data-admin="aba-licenca"]');
+      if (donoLiberado()) {
+        texto.textContent = "Área do Dono aberta neste aparelho (até 4 horas). Licença e chaves liberadas.";
+        btnIn.hidden = true;
+        btnOut.hidden = false;
+        if (abaLic) abaLic.hidden = false;
+        if (resumo && caixa) {
+          caixa.hidden = false;
+          const lic = resumo.licenca || {};
+          const mp = resumo.mercadoPago || {};
+          caixa.innerHTML =
+            `<div><strong>Licença:</strong> ${escapar(lic.estado || "")} · ${escapar(lic.planoNome || lic.plano || "")}` +
+            `${lic.venceEm ? ` · vence ${escapar(lic.venceEm)}` : ""} · ${dinheiro(lic.valor || 0)}</div>` +
+            `<div><strong>Mercado Pago:</strong> ${mp.conectado ? `conectado …${escapar(mp.final || "")}` : "desconectado"}` +
+            `${mp.conta ? ` · ${escapar(mp.conta)}` : ""}</div>` +
+            `<div><strong>Assinatura:</strong> <a href="${escapar(resumo.assinaturaUrl || "https://mpago.la/16XdfVT")}" target="_blank" rel="noopener">${escapar(resumo.assinaturaNome || "Plano mensal")}</a></div>` +
+            `<div class="nota">${escapar(resumo.aviso || "")}</div>`;
+        }
+      } else {
+        texto.textContent = "Área do Dono trancada. Licença e chaves do Mercado Pago só abrem com a senha do Dono.";
+        btnIn.hidden = false;
+        btnOut.hidden = true;
+        if (caixa) { caixa.hidden = true; caixa.innerHTML = ""; }
+        if (abaLic) abaLic.hidden = true;
+        const ativa = document.querySelector(".aba-admin.ativa");
+        if (ativa && ativa.id === "aba-licenca") {
+          document.querySelector('[data-admin="aba-geral"]')?.click();
+        }
+      }
+    }
+    async function pedirDonoSenha() {
+      document.getElementById("dono-fundo").classList.add("aberto");
+      document.getElementById("dono-senha").value = "";
+      document.getElementById("dono-entrar-aviso").textContent = "";
+      document.getElementById("dono-senha").focus();
+    }
+    async function entrarDonoComSenha() {
+      const aviso = document.getElementById("dono-entrar-aviso");
+      const senha = document.getElementById("dono-senha").value;
+      aviso.textContent = "Conferindo…";
+      aviso.className = "aviso";
+      try {
+        const resposta = await fetch("/api/dono/entrar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+          body: JSON.stringify({ senha })
+        });
+        const corpo = await resposta.json();
+        if (!resposta.ok) throw new Error(typeof corpo.detail === "string" ? corpo.detail : "Senha do Dono incorreta.");
+        sessionStorage.setItem("donoToken", corpo.token);
+        document.getElementById("dono-fundo").classList.remove("aberto");
+        atualizarBarraDono(corpo.resumo);
+        document.getElementById("dono-aviso").textContent = "Dono desbloqueado.";
+        document.getElementById("dono-aviso").className = "aviso ok";
+        return true;
+      } catch (erro) {
+        aviso.textContent = erro.message;
+        aviso.className = "aviso erro";
+        return false;
+      }
+    }
 
     let impressoraLoja = { id: "", nome: "", tipo: "" };
 
@@ -7186,7 +7363,47 @@
         if (botao.dataset.admin === "aba-mercadopago") carregarMercadoPago();
         if (botao.dataset.admin === "aba-precificacao") carregarPrecificacao();
         if (botao.dataset.admin === "aba-ifood") carregarIfoodApi();
-        if (botao.dataset.admin === "aba-licenca") carregarLicenca();
+        if (botao.dataset.admin === "aba-licenca") {
+          if (!donoLiberado()) {
+            document.querySelector('[data-admin="aba-geral"]')?.click();
+            pedirDonoSenha();
+            return;
+          }
+          carregarLicenca();
+        }
+      };
+    });
+    document.getElementById("dono-desbloquear").onclick = () => pedirDonoSenha();
+    document.getElementById("dono-entrar-ok").onclick = async () => {
+      const ok = await entrarDonoComSenha();
+      if (ok) document.querySelector('[data-admin="aba-licenca"]')?.click();
+    };
+    document.getElementById("dono-entrar-cancelar").onclick = () => {
+      document.getElementById("dono-fundo").classList.remove("aberto");
+    };
+    document.getElementById("dono-senha").addEventListener("keydown", (evento) => {
+      if (evento.key === "Enter") {
+        evento.preventDefault();
+        document.getElementById("dono-entrar-ok").click();
+      }
+    });
+    document.getElementById("dono-bloquear").onclick = async () => {
+      try {
+        await fetch("/api/dono/sair", { method: "POST", headers: { "x-admin": tokenAdmin(), "x-dono": tokenDono() } });
+      } catch (_) {}
+      sessionStorage.removeItem("donoToken");
+      atualizarBarraDono(null);
+      document.getElementById("dono-aviso").textContent = "Área do Dono trancada.";
+      document.getElementById("dono-aviso").className = "aviso ok";
+    };
+    document.querySelectorAll("#info-temas [data-info-tema]").forEach((botao) => {
+      botao.onclick = () => {
+        document.querySelectorAll("#info-temas [data-info-tema]").forEach((b) => b.classList.remove("ativa"));
+        botao.classList.add("ativa");
+        const tema = botao.dataset.infoTema;
+        document.querySelectorAll(".info-card[data-info]").forEach((card) => {
+          card.hidden = tema !== "TODOS" && card.dataset.info !== tema;
+        });
       };
     });
 
@@ -7312,7 +7529,7 @@
     async function carregarLicenca() {
       const aviso = document.getElementById("licenca-aviso");
       try {
-        const resposta = await fetch("/api/licenca", { headers: { "x-admin": tokenAdmin() } });
+        const resposta = await fetch("/api/licenca", { headers: headersAdmin() });
         const dados = await resposta.json();
         if (!resposta.ok) throw new Error(dados.detail || "Não foi possível ler a licença.");
         mostrarFormLicenca(dados);
@@ -7340,7 +7557,7 @@
       try {
         const resposta = await fetch("/api/licenca", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+          headers: { "Content-Type": "application/json", ...headersAdmin() },
           body: JSON.stringify({
             plano: document.getElementById("licenca-plano").value,
             valor: Number(document.getElementById("licenca-valor").value || 0),
@@ -7368,7 +7585,7 @@
     async function guardarLicencaAntesDeCobrar() {
       const resposta = await fetch("/api/licenca", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+        headers: { "Content-Type": "application/json", ...headersAdmin() },
         body: JSON.stringify({
           plano: document.getElementById("licenca-plano").value,
           valor: Number(document.getElementById("licenca-valor").value || 0),
@@ -7394,7 +7611,7 @@
         await guardarLicencaAntesDeCobrar();
         const resposta = await fetch("/api/licenca/cobrar", {
           method: "POST",
-          headers: { "x-admin": tokenAdmin() }
+          headers: headersAdmin()
         });
         const dados = await resposta.json();
         if (!resposta.ok) throw new Error(typeof dados.detail === "string" ? dados.detail : "Não gerou o Pix.");
@@ -7411,7 +7628,7 @@
       try {
         const resposta = await fetch("/api/licenca/cobranca/conferir", {
           method: "POST",
-          headers: { "x-admin": tokenAdmin() }
+          headers: headersAdmin()
         });
         const dados = await resposta.json();
         if (!resposta.ok) {
@@ -7440,12 +7657,12 @@
       try {
         const resposta = await fetch("/api/licenca/cobranca/cancelar", {
           method: "POST",
-          headers: { "x-admin": tokenAdmin() }
+          headers: headersAdmin()
         });
         const dados = await resposta.json();
         if (!resposta.ok) throw new Error(typeof dados.detail === "string" ? dados.detail : "Não descartou.");
         mostrarFormLicenca(dados);
-        aviso.textContent = "Pix descartado no PDV (o boleto no Mercado Pago pode vencer sozinho).";
+        aviso.textContent = "Pix descartado no PDV (o Pix no Mercado Pago pode vencer sozinho).";
         aviso.className = "aviso ok";
       } catch (erro) {
         aviso.textContent = erro.message;
@@ -7454,7 +7671,8 @@
     };
     document.getElementById("faixa-licenca-admin").onclick = () => {
       irPara("admin");
-      document.querySelector('[data-admin="aba-licenca"]')?.click();
+      if (!donoLiberado()) pedirDonoSenha();
+      else document.querySelector('[data-admin="aba-licenca"]')?.click();
     };
 
     function acenderLuzMp(cor, legenda) {
@@ -7508,7 +7726,7 @@
       try {
         resposta = await fetch(caminho, {
           method: corpo === undefined ? "GET" : "POST",
-          headers: { "Content-Type": "application/json", "x-admin": tokenAdmin() },
+          headers: { "Content-Type": "application/json", ...headersAdmin() },
           body: corpo === undefined ? undefined : JSON.stringify(corpo)
         });
       } catch (erro) {
@@ -7947,6 +8165,12 @@
     };
 
     document.getElementById("mp-chave-salvar").onclick = async () => {
+      if (!donoLiberado()) {
+        document.getElementById("mp-aviso").textContent = "Só o Dono cola o Access Token. Use Desbloquear área do Dono.";
+        document.getElementById("mp-aviso").className = "aviso erro";
+        pedirDonoSenha();
+        return;
+      }
       const campo = document.getElementById("mp-chave");
       const token = campo.value.trim();
       if (!token) {
@@ -7967,6 +8191,12 @@
       document.getElementById("mp-aviso").className = "aviso ok";
     };
     document.getElementById("mp-app-salvar").onclick = async () => {
+      if (!donoLiberado()) {
+        document.getElementById("mp-aviso").textContent = "Só o Dono guarda Client ID/Secret. Use Desbloquear área do Dono.";
+        document.getElementById("mp-aviso").className = "aviso erro";
+        pedirDonoSenha();
+        return;
+      }
       const dados = await pedirMercadoPago("/api/mercadopago/aplicativo", {
         clientId: document.getElementById("mp-client-id").value,
         clientSecret: document.getElementById("mp-client-secret").value,
@@ -8379,6 +8609,20 @@
       preencherBancos(dados);
       if (!fantasmaLigado()) carregarIfoodApi();
       desenharAdminLeitura(ultimoResumo, dados);
+      if (donoLiberado()) {
+        fetch("/api/dono/resumo", { headers: headersAdmin() })
+          .then(async (r) => {
+            const corpo = await r.json().catch(() => ({}));
+            if (r.ok) atualizarBarraDono(corpo);
+            else {
+              sessionStorage.removeItem("donoToken");
+              atualizarBarraDono(null);
+            }
+          })
+          .catch(() => atualizarBarraDono(null));
+      } else {
+        atualizarBarraDono(null);
+      }
     }
     async function entrarAdmin(senha) {
       const avisoAdmin = document.getElementById("admin-aviso");
@@ -8397,6 +8641,36 @@
       avisoAdmin.textContent = "";
       mostrarAdmin(corpo.bancos);
     }
+    document.getElementById("dono-senha-trocar").onclick = async () => {
+      const aviso = document.getElementById("dono-senha-aviso");
+      if (!donoLiberado()) {
+        aviso.textContent = "Desbloqueie a área do Dono antes de trocar essa senha.";
+        aviso.className = "aviso erro";
+        pedirDonoSenha();
+        return;
+      }
+      aviso.textContent = "Guardando…";
+      aviso.className = "aviso";
+      try {
+        const resposta = await fetch("/api/dono/senha", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...headersAdmin() },
+          body: JSON.stringify({
+            senhaAtual: document.getElementById("dono-senha-atual").value,
+            senhaNova: document.getElementById("dono-senha-nova").value
+          })
+        });
+        const corpo = await resposta.json();
+        if (!resposta.ok) throw new Error(typeof corpo.detail === "string" ? corpo.detail : "Não trocou.");
+        document.getElementById("dono-senha-atual").value = "";
+        document.getElementById("dono-senha-nova").value = "";
+        aviso.textContent = "Senha do Dono trocada.";
+        aviso.className = "aviso ok";
+      } catch (erro) {
+        aviso.textContent = erro.message;
+        aviso.className = "aviso erro";
+      }
+    };
     document.getElementById("admin-entrar").onclick = () => entrarAdmin(document.getElementById("admin-senha").value);
     document.getElementById("caixa-turno").onclick = async () => {
       if (!caixaAberto) {

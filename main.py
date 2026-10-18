@@ -396,7 +396,9 @@ TAXAS_PAGAS = []
 FOLHA = []
 ADMIN = {}
 TOKENS_ADMIN = {}
-FALHAS_SENHA = {"n": 0, "ate": 0.0}
+TOKENS_DONO = {}
+URL_ASSINATURA_PDV = "https://mpago.la/16XdfVT"
+FALHAS_SENHA = {"n": 0, "ate": 0.0, "donoN": 0, "donoAte": 0.0}
 TAREFAS = []
 ESTORNOS = []
 MP_VIGILANCIA = []
@@ -3576,6 +3578,24 @@ def senha_confere(senha: str) -> bool:
     return secrets.compare_digest(hash_senha(senha, salt), guardada)
 
 
+def garantir_senha_dono() -> bool:
+    """Senha só do dono do software (não da operação da loja)."""
+    if ADMIN.get("senhaDono") and ADMIN.get("saltDono"):
+        return False
+    salt = secrets.token_hex(16)
+    ADMIN["saltDono"] = salt
+    ADMIN["senhaDono"] = hash_senha("000000", salt)
+    return True
+
+
+def senha_dono_confere(senha: str) -> bool:
+    salt = ADMIN.get("saltDono") or ""
+    guardada = ADMIN.get("senhaDono") or ""
+    if not salt or not guardada:
+        return False
+    return secrets.compare_digest(hash_senha(senha, salt), guardada)
+
+
 def exigir_admin(request: Request) -> None:
     token = request.headers.get("x-admin", "")
     validade = TOKENS_ADMIN.get(token)
@@ -3583,6 +3603,54 @@ def exigir_admin(request: Request) -> None:
         TOKENS_ADMIN.pop(token, None)
         raise HTTPException(status_code=401, detail="Entre de novo na área administrativa.")
     TOKENS_ADMIN[token] = time.time() + 12 * 3600
+
+
+def exigir_dono(request: Request) -> None:
+    exigir_admin(request)
+    token = request.headers.get("x-dono", "")
+    validade = TOKENS_DONO.get(token)
+    if not validade or validade < time.time():
+        TOKENS_DONO.pop(token, None)
+        raise HTTPException(
+            status_code=403,
+            detail="Área do Dono. Digite a senha do Dono para ver dados sensíveis (licença, chaves, assinatura).",
+        )
+    TOKENS_DONO[token] = time.time() + 4 * 3600
+
+
+def resumo_dono() -> dict:
+    """O que só o dono vê: licença, MP mascarado, assinatura — sem vazar a chave completa."""
+    mp = ler_mp()
+    token = mp.get("accessToken") or ""
+    lic = status_licenca()
+    return {
+        "ok": True,
+        "assinaturaUrl": URL_ASSINATURA_PDV,
+        "assinaturaNome": "Plano mensal · R$ 100/mês · 7 dias de teste",
+        "licenca": {
+            "estado": lic.get("estado"),
+            "plano": lic.get("plano"),
+            "planoNome": lic.get("planoNome"),
+            "valor": lic.get("valor"),
+            "venceEm": lic.get("venceEm"),
+            "cliente": lic.get("cliente"),
+            "loja": lic.get("loja"),
+            "podeVender": lic.get("podeVender"),
+            "mensagem": lic.get("mensagem"),
+            "cobrancaAguardando": bool((lic.get("cobrancaMp") or {}).get("aguardando")),
+        },
+        "mercadoPago": {
+            "conectado": bool(token),
+            "final": token[-4:] if token else "",
+            "teste": token.startswith("TEST-"),
+            "conta": mp.get("conta") or "",
+            "conectadoEm": mp.get("conectadoEm") or "",
+        },
+        "aviso": (
+            "Cada PDV guarda os segredos só neste computador (dados/). "
+            "O Dono desbloqueia chave e licença aqui. A operação da loja usa a senha do Administrativo."
+        ),
+    }
 
 
 def _percentual(valor, padrao: float, casas: int = 2) -> float:
@@ -5771,6 +5839,61 @@ def trocar_senha(payload: TrocaSenha, request: Request):
     return {"ok": True}
 
 
+class EntradaDono(BaseModel):
+    senha: str
+
+
+class TrocaSenhaDono(BaseModel):
+    senhaAtual: str
+    senhaNova: str
+
+
+@app.post("/api/dono/entrar")
+def entrar_dono(payload: EntradaDono, request: Request):
+    exigir_admin(request)
+    if time.time() < FALHAS_SENHA.get("donoAte", 0):
+        raise HTTPException(status_code=429, detail="Muitas tentativas na senha do Dono. Espere um minuto.")
+    if not senha_dono_confere(payload.senha):
+        FALHAS_SENHA["donoN"] = int(FALHAS_SENHA.get("donoN") or 0) + 1
+        if FALHAS_SENHA["donoN"] >= 5:
+            FALHAS_SENHA["donoAte"] = time.time() + 60
+            FALHAS_SENHA["donoN"] = 0
+        raise HTTPException(status_code=401, detail="Senha do Dono incorreta.")
+    FALHAS_SENHA["donoN"] = 0
+    token = secrets.token_urlsafe(24)
+    TOKENS_DONO[token] = time.time() + 4 * 3600
+    return {"token": token, "resumo": resumo_dono()}
+
+
+@app.get("/api/dono/resumo")
+def ver_resumo_dono(request: Request):
+    exigir_dono(request)
+    return resumo_dono()
+
+
+@app.post("/api/dono/sair")
+def sair_dono(request: Request):
+    exigir_admin(request)
+    token = request.headers.get("x-dono", "")
+    TOKENS_DONO.pop(token, None)
+    return {"ok": True}
+
+
+@app.put("/api/dono/senha")
+def trocar_senha_dono(payload: TrocaSenhaDono, request: Request):
+    exigir_dono(request)
+    if not senha_dono_confere(payload.senhaAtual):
+        raise HTTPException(status_code=401, detail="A senha atual do Dono não confere.")
+    nova = payload.senhaNova.strip()
+    if len(nova) < 6:
+        raise HTTPException(status_code=400, detail="A nova senha do Dono precisa ter pelo menos 6 caracteres.")
+    salt = secrets.token_hex(16)
+    ADMIN["saltDono"] = salt
+    ADMIN["senhaDono"] = hash_senha(nova, salt)
+    salvar()
+    return {"ok": True}
+
+
 class LogoSalvo(BaseModel):
     imagem: str = ""
 
@@ -5822,13 +5945,13 @@ def ver_licenca_status():
 
 @app.get("/api/licenca")
 def ver_licenca(request: Request):
-    exigir_admin(request)
+    exigir_dono(request)
     return status_licenca()
 
 
 @app.post("/api/licenca")
 def salvar_licenca(payload: LicencaSalva, request: Request):
-    exigir_admin(request)
+    exigir_dono(request)
     plano = (payload.plano or "").strip().upper()
     if plano not in PLANOS_LICENCA:
         raise HTTPException(status_code=400, detail="Plano inválido. Use 30, 40, 90, VITALICIA ou AVULSO.")
@@ -5879,7 +6002,7 @@ def salvar_licenca(payload: LicencaSalva, request: Request):
 @app.post("/api/licenca/cobrar")
 def cobrar_licenca_mp(request: Request):
     """Gera Pix no Mercado Pago pelo valor da licença. Quando pagar, o PDV renova sozinho."""
-    exigir_admin(request)
+    exigir_dono(request)
     if not ler_mp().get("accessToken"):
         raise HTTPException(
             status_code=400,
@@ -5946,7 +6069,7 @@ def cobrar_licenca_mp(request: Request):
 
 @app.post("/api/licenca/cobranca/conferir")
 def conferir_cobranca_licenca(request: Request):
-    exigir_admin(request)
+    exigir_dono(request)
     dados = ler_licenca()
     cob = dados.get("cobrancaMp") if isinstance(dados.get("cobrancaMp"), dict) else {}
     pag_id = str(cob.get("pagamentoId") or "")
@@ -5977,7 +6100,7 @@ def conferir_cobranca_licenca(request: Request):
 
 @app.post("/api/licenca/cobranca/cancelar")
 def cancelar_cobranca_licenca(request: Request):
-    exigir_admin(request)
+    exigir_dono(request)
     dados = ler_licenca()
     dados["cobrancaMp"] = {}
     gravar_licenca(dados)
@@ -6490,7 +6613,7 @@ def ver_mercadopago(request: Request):
 
 @app.post("/api/mercadopago/chave")
 def conectar_por_chave(payload: ChaveMp, request: Request):
-    exigir_admin(request)
+    exigir_dono(request)
     token = payload.accessToken.strip().strip('"').strip("'")
     if re.fullmatch(r"(APP_USR|TEST)-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", token):
         raise HTTPException(
@@ -6521,7 +6644,7 @@ def conectar_por_chave(payload: ChaveMp, request: Request):
 
 @app.post("/api/mercadopago/aplicativo")
 def guardar_aplicativo_mp(payload: AplicativoMp, request: Request):
-    exigir_admin(request)
+    exigir_dono(request)
     dados = ler_mp()
     client_id = payload.clientId.strip()
     retorno = payload.redirectUri.strip()
@@ -8039,7 +8162,7 @@ def conferir_catalogo_ifood(request: Request):
     return resumo
 
 
-if garantir_senha_admin() or garantir_conferencia_antiga():
+if garantir_senha_admin() or garantir_senha_dono() or garantir_conferencia_antiga():
     salvar()
 
 try:
