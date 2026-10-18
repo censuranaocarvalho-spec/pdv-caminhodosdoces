@@ -1,49 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
+# Um único gerenciador.exe (one-file) para Ligar / Desligar o PDV.
 
-
-a = Analysis(
-    ['gerenciador.py'],
-    pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-    optimize=0,
-)
-pyz = PYZ(a.pure)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name='gerenciador',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='gerenciador',
-)
-# gerenciador.spec
-# -*- mode: python ; coding: utf-8 -*-
 block_cipher = None
 
 a = Analysis(

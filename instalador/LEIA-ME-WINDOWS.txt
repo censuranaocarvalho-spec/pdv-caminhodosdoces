@@ -1,0 +1,18 @@
+Caminho dos Doces — PDV no Windows (sem Python / sem Git)
+
+Baixe o zip da Release no GitHub:
+  pdv-caminho-dos-doces-windows.zip
+
+Extraia e deixe assim:
+
+  CaminhoDosDoces\
+    gerenciador.exe
+    main\
+      main.exe
+      (pastas e DLLs do PyInstaller)
+    versao.txt
+    LEIA-ME.txt
+
+Abra gerenciador.exe → Ligar → http://127.0.0.1:8090
+
+Nao use so o gerenciador.exe sozinho: sem a pasta main/ o PDV nao sobe.

@@ -47,8 +47,40 @@ except ImportError:  # pragma: no cover
     Image = None
     ImageOps = None
 
-RAIZ = os.path.dirname(os.path.abspath(__file__))
-FRONTEND = os.path.join(RAIZ, "frontend")
+
+def _pasta_do_exe() -> str:
+    """Pasta gravável ao lado do .exe (PyInstaller) ou do main.py (dev)."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _pasta_do_pacote() -> str:
+    """Onde o PyInstaller extrai dados embutidos (frontend, etc.)."""
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", _pasta_do_exe())
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _garantir_frontend() -> str:
+    """Usa frontend ao lado do exe; se faltar, copia o embutido no pacote."""
+    local = os.path.join(_pasta_do_exe(), "frontend")
+    embutido = os.path.join(_pasta_do_pacote(), "frontend")
+    if os.path.isdir(local) and os.path.isfile(os.path.join(local, "index.html")):
+        return local
+    if os.path.isdir(embutido) and embutido != local:
+        try:
+            if os.path.isdir(local):
+                shutil.rmtree(local)
+            shutil.copytree(embutido, local)
+            return local
+        except OSError:
+            return embutido
+    return local if os.path.isdir(local) else embutido
+
+
+RAIZ = _pasta_do_exe()
+FRONTEND = _garantir_frontend()
 ARQUIVO = os.path.join(RAIZ, "dados", "pdv.json")
 PASTA_RECIBOS = os.path.join(RAIZ, "dados", "recibos")
 PASTA_FISICA = os.path.join(RAIZ, "dados", "pessoa-fisica")

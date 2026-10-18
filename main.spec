@@ -1,12 +1,13 @@
-# main.spec
 # -*- mode: python ; coding: utf-8 -*-
+# Empacota o servidor do PDV (pasta dist/main/ com main.exe + _internal).
+
 block_cipher = None
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('frontend', 'frontend')],
     hiddenimports=[
         'uvicorn',
         'uvicorn.logging',
@@ -21,10 +22,17 @@ a = Analysis(
         'uvicorn.lifespan.on',
         'fastapi',
         'pydantic',
-        'psycopg2',
-        'redis',
-        'pika',
+        'multipart',
+        'websocket',
+        'websocket._app',
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageOps',
+        'qrcode',
+        'qrcode.image.pil',
         'requests',
+        'httpx',
+        'jinja2',
     ],
     hookspath=[],
     runtime_hooks=[],

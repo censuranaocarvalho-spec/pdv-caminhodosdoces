@@ -42,16 +42,34 @@ log = logging.getLogger("gerenciador")
 def eh_windows() -> bool:
     return sys.platform == "win32"
 
+def achar_main_exe() -> Path | None:
+    """Procura o servidor empacotado ao lado do gerenciador."""
+    candidatos = [
+        RAIZ / "main.exe",
+        RAIZ / "main" / "main.exe",
+    ]
+    for caminho in candidatos:
+        if caminho.is_file():
+            return caminho
+    return None
+
+
 def comando_do_pdv():
+    """Retorna (argv, cwd) para subir o PDV sem depender de Python no PC."""
     if eh_windows():
-        main_exe = RAIZ / "main.exe"
-        if main_exe.exists():
-            return [str(main_exe)]
-    py = RAIZ / "core-orders" / "venv" / "bin" / "python"
+        main_exe = achar_main_exe()
+        if main_exe is not None:
+            return [str(main_exe)], str(main_exe.parent)
+    py_win = RAIZ / "core-orders" / "venv" / "Scripts" / "python.exe"
+    py_nix = RAIZ / "core-orders" / "venv" / "bin" / "python"
     main_py = RAIZ / "main.py"
-    if py.exists():
-        return [str(py), str(main_py)]
-    return [sys.executable, str(main_py)]
+    if py_win.exists() and main_py.exists():
+        return [str(py_win), str(main_py)], str(RAIZ)
+    if py_nix.exists() and main_py.exists():
+        return [str(py_nix), str(main_py)], str(RAIZ)
+    if main_py.exists():
+        return [sys.executable, str(main_py)], str(RAIZ)
+    return [], str(RAIZ)
 
 def esta_rodando() -> bool:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -96,7 +114,10 @@ def atualizar_se_necessario(status_cb) -> bool:
             z.extractall(pasta_tmp)
         sub = list(pasta_tmp.iterdir())[0]
 
-        protegidas = {".venv", "core-orders", "logs", "dados", ".git", "main.exe", "gerenciador.exe"}
+        protegidas = {
+            ".venv", "core-orders", "logs", "dados", ".git",
+            "main.exe", "gerenciador.exe", "main", "_internal", "frontend",
+        }
         status_cb("Aplicando atualizacao...")
         for item in sub.iterdir():
             if item.name in protegidas:
@@ -136,15 +157,23 @@ class WorkerThread(QThread):
 
         if not esta_rodando():
             self.status_signal.emit("Iniciando o servidor...")
-            cmd = comando_do_pdv()
-            log.info(f"Iniciando PDV: {' '.join(cmd)}")
+            cmd, cwd = comando_do_pdv()
+            if not cmd:
+                msg = (
+                    "Nao achei o main.exe. Deixe a pasta main/ (com main.exe) "
+                    "na mesma pasta deste gerenciador, ou use o zip completo da Release."
+                )
+                log.error(msg)
+                self.concluido_signal.emit(False, msg)
+                return
+            log.info(f"Iniciando PDV: {' '.join(cmd)} (cwd={cwd})")
 
             flags = 0
             if eh_windows():
                 flags = subprocess.CREATE_NO_WINDOW
 
             try:
-                subprocess.Popen(cmd, cwd=str(RAIZ), creationflags=flags)
+                subprocess.Popen(cmd, cwd=cwd, creationflags=flags)
             except Exception as e:
                 log.error(f"Falha ao iniciar: {e}")
                 self.concluido_signal.emit(False, f"Falha ao iniciar: {e}")
@@ -158,7 +187,11 @@ class WorkerThread(QThread):
         if esta_rodando():
             self.concluido_signal.emit(True, "O PDV esta ligado")
         else:
-            self.concluido_signal.emit(False, "O PDV nao subiu. Veja logs/gerenciador.log")
+            self.concluido_signal.emit(
+                False,
+                "O PDV nao subiu na porta 8090. Veja logs/gerenciador.log "
+                "e confira se a pasta main/ esta ao lado do gerenciador.exe.",
+            )
 
     def executar_desligar(self):
         self.status_signal.emit("Desligando...")
