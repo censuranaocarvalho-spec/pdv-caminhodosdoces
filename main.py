@@ -94,6 +94,10 @@ TUNEL_PROC = {"proc": None, "log": ""}
 PEDIDO_ONLINE_RATE = {}  # ip -> [timestamps]
 JUROS_MES = 0.0199
 WHATSAPP_DONA = "5561994429261"
+DOMINIO_PDV = "https://pdv.caminhodosdoces.com.br"
+EMAIL_SUPORTE = "fagner.s.freitas@gmail.com"
+EMAIL_ADMIN = "censuranaocarvalho@gmail.com"
+WHATSAPP_SUPORTE = "https://bit.ly/4szEkNj"
 PLANOS_LICENCA = {
     "30": {"nome": "30 dias", "dias": 30},
     "40": {"nome": "40 dias", "dias": 40},
@@ -119,12 +123,14 @@ IDS_MODULOS = [m["id"] for m in MODULOS_PDV]
 MODALIDADES = {
     "BASICO": {
         "nome": "Básico",
-        "precoSugerido": 79.0,
+        "precoSugerido": 129.0,
+        "link": "https://mpago.la/1NBtehf",
         "modulos": ["caixa", "cozinha", "cardapio", "admin", "informativo"],
     },
     "INTERMEDIARIO": {
-        "nome": "Intermediário",
+        "nome": "Médio",
         "precoSugerido": 129.0,
+        "link": "https://mpago.la/2CReKXM",
         "modulos": [
             "caixa", "cozinha", "financeiro", "motoboy", "cardapio", "agenda",
             "admin", "informativo", "pedido_online",
@@ -133,6 +139,7 @@ MODALIDADES = {
     "COMPLETO": {
         "nome": "Completo",
         "precoSugerido": 199.0,
+        "link": "https://mpago.la/16w3aBF",
         "modulos": list(IDS_MODULOS),
     },
 }
@@ -351,6 +358,7 @@ def status_licenca() -> dict:
                 "nome": m["nome"],
                 "precoSugerido": m["precoSugerido"],
                 "modulos": list(m["modulos"]),
+                "link": m.get("link") or "",
             }
             for mid, m in MODALIDADES.items()
         ],
@@ -502,7 +510,7 @@ FOLHA = []
 ADMIN = {}
 TOKENS_ADMIN = {}
 TOKENS_DONO = {}
-URL_ASSINATURA_PDV = "https://mpago.la/16XdfVT"
+URL_ASSINATURA_PDV = MODALIDADES["COMPLETO"]["link"]
 FALHAS_SENHA = {"n": 0, "ate": 0.0, "donoN": 0, "donoAte": 0.0}
 TAREFAS = []
 ESTORNOS = []
@@ -810,9 +818,12 @@ def gravar_tunel(dados: dict) -> None:
 
 
 def url_tunel_publica() -> str:
-    url = (ler_tunel().get("urlPublica") or "").strip().rstrip("/")
+    dados = ler_tunel()
+    url = (dados.get("urlPublica") or "").strip().rstrip("/")
     if url.startswith("https://") or url.startswith("http://"):
         return url
+    if dados.get("modo") != "rapido":
+        return DOMINIO_PDV
     return ""
 
 
@@ -936,10 +947,7 @@ def iniciar_tunel(modo: str = "token") -> dict:
                 detail="Cole o token do túnel Cloudflare (Zero Trust → Tunnels → Configure) e guarde antes de ligar.",
             )
         if not (dados.get("urlPublica") or "").strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Informe a URL pública do túnel (ex.: https://loja.seudominio.com) e guarde.",
-            )
+            dados["urlPublica"] = DOMINIO_PDV
         cmd = [binario, "tunnel", "run", "--token", token]
         dados["modo"] = "token"
     gravar_tunel(dados)
@@ -975,6 +983,8 @@ def status_tunel() -> dict:
     proc = TUNEL_PROC.get("proc")
     ligado = bool(proc and proc.poll() is None)
     url = (dados.get("urlPublica") or "").strip().rstrip("/")
+    if not url and (dados.get("modo") or "token") != "rapido":
+        url = DOMINIO_PDV
     return {
         "ok": True,
         "ligado": ligado,
@@ -3995,7 +4005,9 @@ def resumo_dono() -> dict:
     return {
         "ok": True,
         "assinaturaUrl": URL_ASSINATURA_PDV,
-        "assinaturaNome": "Plano mensal · R$ 100/mês · 7 dias de teste",
+        "assinaturaNome": "Plano Completo",
+        "dominio": DOMINIO_PDV,
+        "suporteEmail": EMAIL_SUPORTE,
         "licenca": {
             "estado": lic.get("estado"),
             "plano": lic.get("plano"),
