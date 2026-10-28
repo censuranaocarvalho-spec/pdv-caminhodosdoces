@@ -2331,9 +2331,9 @@
               <div>
                 <label for="licenca-modalidade">Modalidade (módulos)</label>
                 <select id="licenca-modalidade">
-                  <option value="BASICO">Básico · R$ 79</option>
-                  <option value="INTERMEDIARIO">Intermediário · R$ 129</option>
-                  <option value="COMPLETO">Completo · R$ 199</option>
+                  <option value="BASICO">Básico · R$ 129</option>
+                  <option value="INTERMEDIARIO">Médio</option>
+                  <option value="COMPLETO">Completo</option>
                   <option value="CUSTOM">Custom (à mão)</option>
                 </select>
               </div>
@@ -2351,12 +2351,12 @@
             <p class="nota" id="licenca-modalidade-nota">Escolha a modalidade ou marque as abas abaixo. Administrativo fica sempre liberado para o Dono não se trancar.</p>
             <div id="licenca-modulos" class="linha" style="flex-wrap:wrap;gap:8px 16px;margin:8px 0 12px"></div>
             <h3>Link público (pedido online)</h3>
-            <p class="nota">A cliente abre o link, escolhe os doces, paga Pix e o pedido cai na cozinha/financeiro. Precisa do módulo «Pedido online» (Intermediário/Completo) e do túnel Cloudflare.</p>
+            <p class="nota">A cliente abre o link, escolhe os doces, paga Pix e o pedido cai na cozinha/financeiro. Precisa do módulo «Pedido online» (Médio/Completo) e do túnel Cloudflare.</p>
             <p class="nota" id="tunel-estado">Túnel: conferindo…</p>
             <label for="tunel-token">Token do túnel (Cloudflare Zero Trust)</label>
             <input id="tunel-token" type="password" autocomplete="off" placeholder="eyJ… cole o token do tunnel">
             <label for="tunel-url">URL pública (domínio do tunnel)</label>
-            <input id="tunel-url" type="url" autocomplete="off" placeholder="https://loja.seudominio.com">
+            <input id="tunel-url" type="url" autocomplete="off" placeholder="https://pdv.caminhodosdoces.com.br">
             <p class="nota">Sem domínio ainda? Use <strong>Túnel rápido</strong> (URL *.trycloudflare.com temporária).</p>
             <div class="botoes-ficha">
               <button class="acao claro" id="tunel-guardar" type="button">Guardar túnel</button>
@@ -2485,6 +2485,7 @@
           <button type="button" class="ativa" data-info-tema="TODOS">Tudo</button>
           <button type="button" data-info-tema="ACESSOS">Quem vê o quê</button>
           <button type="button" data-info-tema="ASSINATURA">Assinatura do PDV</button>
+          <button type="button" data-info-tema="SUPORTE">Suporte</button>
           <button type="button" data-info-tema="INICIO">Primeiro acesso</button>
           <button type="button" data-info-tema="MP">Mercado Pago</button>
           <button type="button" data-info-tema="IFOOD">iFood / 99</button>
@@ -2504,28 +2505,52 @@
       </div>
       <div class="card info-card" id="info-assinatura" data-info="ASSINATURA">
         <h2>Assinatura do PDV (Mercado Pago)</h2>
-        <p class="nota">Plano mensal da Caminho dos Doces no Mercado Pago: 7 dias de teste e R$ 100/mês, renovação todo dia 5. Cancele quando quiser.</p>
-        <p><a class="acao" href="https://mpago.la/16XdfVT" target="_blank" rel="noopener">Abrir assinatura no Mercado Pago</a></p>
-        <p class="nota">Link: <a href="https://mpago.la/16XdfVT" target="_blank" rel="noopener">https://mpago.la/16XdfVT</a></p>
+        <p class="nota">Três planos. O domínio do pedido online é https://pdv.caminhodosdoces.com.br/.</p>
+        <ul>
+          <li><strong>Básico · R$ 129,00.</strong> <a href="https://mpago.la/1NBtehf" target="_blank" rel="noopener">https://mpago.la/1NBtehf</a></li>
+          <li><strong>Médio.</strong> <a href="https://mpago.la/2CReKXM" target="_blank" rel="noopener">https://mpago.la/2CReKXM</a></li>
+          <li><strong>Completo.</strong> <a href="https://mpago.la/16w3aBF" target="_blank" rel="noopener">https://mpago.la/16w3aBF</a></li>
+        </ul>
+        <p><a class="acao" href="https://mpago.la/16w3aBF" target="_blank" rel="noopener">Abrir plano Completo no Mercado Pago</a></p>
         <ol class="tutorial-passos">
           <li>O link é da assinatura do <strong>software</strong> (Dono). Não é a cobrança da cliente no caixa.</li>
           <li>No PDV, a aba <strong>Licença (Dono)</strong> controla se esta instalação pode vender; o Pix da licença e este link de assinatura são as formas de o Mercado Pago registrar o pagamento do plano.</li>
           <li>Só o Dono gera/confere cobrança de licença. A operação da loja não precisa desse link no dia a dia.</li>
         </ol>
       </div>
+      <div class="card info-card" id="info-suporte" data-info="SUPORTE">
+        <h2>Suporte técnico ao cliente</h2>
+        <p class="nota">Manter a loja e o caixa no ar. Atendimento da operação de caixa, das vendas, das plataformas e da licença.</p>
+        <p><strong>Domínio:</strong> <a href="https://pdv.caminhodosdoces.com.br/" target="_blank" rel="noopener">https://pdv.caminhodosdoces.com.br/</a></p>
+        <h3>O que o suporte cobre</h3>
+        <ul>
+          <li><strong>Direção / Administrativo.</strong> Usuários, permissões e renovação de licença.</li>
+          <li><strong>Gestão financeira.</strong> Vendas e plataformas, despesas e custos, licenciamento.</li>
+          <li><strong>Estoque e suprimentos.</strong> Almoxarifado e baixa de insumos.</li>
+          <li><strong>Operação / atendimento.</strong> Balcão e caixa (abertura, fechamento, sangria, cancelamento e comprovante), cozinha, entrega e suporte à cliente.</li>
+          <li><strong>Pagamentos.</strong> Mercado Pago, cartão e Pix no caixa.</li>
+          <li><strong>Plataformas.</strong> Pedidos do iFood, do 99Food e do balcão.</li>
+        </ul>
+        <h3>Canais</h3>
+        <ul>
+          <li><strong>WhatsApp:</strong> <a href="https://bit.ly/4szEkNj" target="_blank" rel="noopener">https://bit.ly/4szEkNj</a></li>
+          <li><strong>E-mail:</strong> <a href="mailto:fagner.s.freitas@gmail.com">fagner.s.freitas@gmail.com</a></li>
+          <li><strong>Horário:</strong> segunda a sábado, das 9h às 21h. Domingos e feriados, das 10h às 21h.</li>
+        </ul>
+      </div>
       <div class="card info-card" id="info-modalidades" data-info="ASSINATURA">
         <h2>Modalidades (módulos do PDV)</h2>
         <p class="nota">Um programa só. O Dono libera abas por modalidade ou marca à mão em Administrativo → Licença. Quem usa este computador vê as mesmas abas liberadas.</p>
         <ul>
-          <li><strong>Básico · R$ 79/mês (sugerido).</strong> Caixa, Cozinha, Cardápio, Administrativo, Informativo.</li>
-          <li><strong>Intermediário · R$ 129/mês (sugerido).</strong> Soma Financeiro, Motoboy, Agenda e Pedido online (link).</li>
-          <li><strong>Completo · R$ 199/mês (sugerido).</strong> Soma Almoxarifado — todas as abas e o link público.</li>
+          <li><strong>Básico · R$ 129/mês.</strong> Operação: Caixa, Cozinha, Cardápio, Administrativo e Informativo.</li>
+          <li><strong>Médio.</strong> Soma Gestão financeira, Entrega (Motoboy), Agenda e Pedido online.</li>
+          <li><strong>Completo.</strong> Soma Estoque (Almoxarifado) — as três áreas: financeiro, estoque e operação.</li>
           <li><strong>Custom.</strong> Qualquer combinação. O valor cobrado é o que o Dono digitar na Licença.</li>
         </ul>
         <p class="nota">O plano de tempo (30/40/90 dias, vitalícia) é separado da modalidade: um controla vencimento; o outro, quais abas aparecem. No futuro dá para ter senha por pessoa (Esposa, Caixa…) herdando o máximo da modalidade.</p>
         <h3>Pedido online (link)</h3>
         <ol class="tutorial-passos">
-          <li>Libere o módulo «Pedido online» na Licença (Intermediário ou Completo).</li>
+          <li>Libere o módulo «Pedido online» na Licença (Médio ou Completo).</li>
           <li>Configure o túnel Cloudflare (token + URL) ou use Túnel rápido.</li>
           <li>Copie o link <code>/pedir</code> e mande no WhatsApp.</li>
           <li>A cliente escolhe os doces, paga Pix; quando o Mercado Pago confirma, o pedido vai para a cozinha e o financeiro no PDV.</li>
@@ -6410,7 +6435,8 @@
             `${lic.venceEm ? ` · vence ${escapar(lic.venceEm)}` : ""} · ${dinheiro(lic.valor || 0)}</div>` +
             `<div><strong>Mercado Pago:</strong> ${mp.conectado ? `conectado …${escapar(mp.final || "")}` : "desconectado"}` +
             `${mp.conta ? ` · ${escapar(mp.conta)}` : ""}</div>` +
-            `<div><strong>Assinatura:</strong> <a href="${escapar(resumo.assinaturaUrl || "https://mpago.la/16XdfVT")}" target="_blank" rel="noopener">${escapar(resumo.assinaturaNome || "Plano mensal")}</a></div>` +
+            `<div><strong>Assinatura:</strong> <a href="${escapar(resumo.assinaturaUrl || "https://mpago.la/16w3aBF")}" target="_blank" rel="noopener">${escapar(resumo.assinaturaNome || "Plano Completo")}</a></div>` +
+            `<div><strong>Domínio:</strong> ${escapar(resumo.dominio || "https://pdv.caminhodosdoces.com.br")}</div>` +
             `<div class="nota">${escapar(resumo.aviso || "")}</div>`;
         }
       } else {
@@ -7565,7 +7591,8 @@
         preco.textContent = "Preço sugerido: digite o valor cobrado à mão.";
       } else if (meta) {
         nota.textContent = `${meta.nome}: libera ${meta.modulos.join(", ")}.`;
-        preco.textContent = `Preço sugerido: ${dinheiro(meta.precoSugerido || 0)}/mês (pode alterar o valor abaixo).`;
+        preco.innerHTML = `Preço sugerido: ${dinheiro(meta.precoSugerido || 0)}/mês` +
+          (meta.link ? ` · <a href="${escapar(meta.link)}" target="_blank" rel="noopener">link do plano</a>` : "");
       } else {
         nota.textContent = "Escolha a modalidade ou marque as abas abaixo.";
         preco.textContent = "Preço sugerido da modalidade aparece aqui.";
